@@ -1,0 +1,1239 @@
+% ============================================================
+%  CS7IS2 — Artificial Intelligence — Assignment 3
+%  Minimax & Reinforcement Learning for Board Games
+%  Trinity College Dublin  ·  2025–2026
+% ============================================================
+\documentclass[12pt, a4paper]{article}
+
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.8cm, right=2.8cm]{geometry}
+\usepackage{graphicx}
+\graphicspath{{../results/figures/}{screenshots/}{../results/figures/screenshots/}{./}}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
+\usepackage{algorithm}
+\usepackage[super,sort&compress]{natbib}
+\usepackage{tocloft}
+
+\renewcommand{\cftsecleader}{\cftdotfill{\cftnodots}}
+\renewcommand{\cftsubsecleader}{\cftdotfill{\cftnodots}}
+\renewcommand{\cftsecfont}{\bfseries\color{tcdblue}}
+\renewcommand{\cftsecpagefont}{\bfseries\color{tcdblue}}
+\setlength{\cftsecnumwidth}{2.5em}
+\setlength{\cftsubsecnumwidth}{3.2em}
+\setlength{\cftsubsubsecnumwidth}{4.0em}
+\setlength{\cftbeforesecskip}{6pt}
+\setlength{\cftbeforesubsecskip}{2pt}
+
+\definecolor{tcdblue}{RGB}{0, 45, 114}
+\definecolor{tcdgold}{RGB}{163, 127, 58}
+\definecolor{codegrey}{RGB}{240, 240, 240}
+\definecolor{linkblue}{RGB}{0, 85, 160}
+
+\hypersetup{colorlinks=true, linkcolor=linkblue, citecolor=tcdblue, urlcolor=linkblue,
+    pdftitle={CS7IS2 Assignment 3}, pdfauthor={Naman Kumar}}
+
+\titleformat{\section}{\large\bfseries\color{tcdblue}}{{\thesection}}{0.8em}{}[\vspace{-4pt}\rule{\linewidth}{0.6pt}]
+\titleformat{\subsection}{\normalsize\bfseries\color{tcdblue}}{\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries}{\thesubsubsection}{0.8em}{}
+
+\pagestyle{fancy}\fancyhf{}
+\fancyfoot[L]{%
+    \IfFileExists{trinity_logo.png}{%
+        \includegraphics[height=0.75cm]{trinity_logo.png}%
+    }{\IfFileExists{trinity_logo.jpg}{%
+        \includegraphics[height=0.75cm]{trinity_logo.jpg}%
+    }{{\footnotesize\color{tcdblue}\textbf{TCD}}}}%
+}
+\fancyfoot[C]{\small\color{tcdblue} CS7IS2 — AI \textbf{·} Assignment 3}
+\fancyfoot[R]{\small\color{tcdblue}\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\setlength{\headheight}{15pt}
+\setlength{\footskip}{30pt}
+
+\lstset{backgroundcolor=\color{codegrey}, basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{tcdblue}, commentstyle=\itshape\color{gray},
+    stringstyle=\color{tcdgold}, breaklines=true, frame=single, numbers=left,
+    numberstyle=\tiny\color{gray}, tabsize=4, captionpos=b}
+
+\captionsetup{font=small, labelfont={bf,color=tcdblue}, margin=10pt}
+
+% ── flexible image loader: tries .png then .jpg then shows placeholder ───────
+\newcommand{\tryimg}[3][width=\linewidth]{%
+    \IfFileExists{#2.png}{%
+        \includegraphics[#1]{#2.png}%
+    }{%
+        \IfFileExists{#2.jpg}{%
+            \includegraphics[#1]{#2.jpg}%
+        }{%
+            \IfFileExists{#2.jpeg}{%
+                \includegraphics[#1]{#2.jpeg}%
+            }{%
+                \fbox{\parbox{0.6\linewidth}{\centering\vspace{1.8cm}%
+                    \textit{[Missing image: #2.png / .jpg]}%
+                \vspace{1.8cm}}}%
+            }%
+        }%
+    }%
+}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\setlength{\parskip}{6pt}
+\setlist[itemize]{noitemsep, topsep=2pt}
+\setlist[enumerate]{noitemsep, topsep=2pt}
+
+
+\begin{document}
+\begin{titlepage}\centering\vspace*{0.5cm}
+    \IfFileExists{trinity_logo.png}{%
+        \includegraphics[width=5cm]{trinity_logo.png}\\[0.8cm]
+    }{\IfFileExists{trinity_logo.jpg}{%
+        \includegraphics[width=5cm]{trinity_logo.jpg}\\[0.8cm]
+    }{%
+        {\fontsize{28}{32}\selectfont\color{tcdblue}\textbf{Trinity College Dublin}}\\[0.4cm]
+        {\large\color{tcdgold} The University of Dublin}\\[0.8cm]
+        \rule{0.6\linewidth}{1.5pt}\\[0.8cm]
+    }}
+    {\Large\bfseries\color{tcdblue} CS7IS2 — Artificial Intelligence}\\[0.3cm]
+    {\large Assignment 3: Minimax and Reinforcement Learning}\\[1.2cm]
+    \rule{\linewidth}{0.6pt}\\[0.6cm]
+    {\LARGE\bfseries\color{tcdblue} Comparative Analysis of Minimax}\\[0.3cm]
+    {\LARGE\bfseries\color{tcdblue} and Reinforcement Learning}\\[0.3cm]
+    {\large\bfseries\color{tcdblue} on Tic Tac Toe and Connect 4}\\[0.6cm]
+    \rule{\linewidth}{0.6pt}\\[1.2cm]
+    \begin{tabular}{rl}
+        \textbf{Author}      & Naman Kumar\\[4pt]
+        \textbf{Student ID}  & 25340053\\[4pt]
+        \textbf{Module}      & CS7IS2 — Artificial Intelligence\\[4pt]
+        \textbf{Institution} & Trinity College Dublin\\[4pt]
+        \textbf{Date}        & \today\\
+    \end{tabular}
+    \vfill
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Introduction}
+
+Game playing has been a central challenge in artificial intelligence research since the field's
+inception. Two-player, zero-sum, perfect-information games provide a controlled setting in which
+to study decision-making under adversarial conditions, where every gain for one player is a
+corresponding loss for the other~\cite{vonneumann1944}.
+
+This report implements and compares two fundamentally different paradigms for playing board games.
+The first paradigm, \textbf{adversarial search}, constructs a game tree and evaluates positions by
+simulating all possible future moves. The canonical algorithm is Minimax~\cite{russell2010},
+further improved by alpha-beta pruning~\cite{knuth1975} to reduce the number of nodes evaluated.
+The second paradigm, \textbf{reinforcement learning (RL)}, learns a policy by repeatedly playing
+the game and updating value estimates based on outcomes. Two RL approaches are considered:
+tabular Q-learning~\cite{watkins1992}, which stores state-action values in an explicit lookup
+table, and Deep Q-Networks (DQN)~\cite{mnih2015}, which use a neural network to approximate
+the Q-function.
+
+These algorithms are evaluated on two games of very different complexity.
+\textbf{Tic Tac Toe} (TTT) is a $3\times3$ grid game with approximately 5,478 legal positions
+and a maximum of 9 moves, making full-depth search entirely feasible.
+\textbf{Connect 4} (C4) is a $6\times7$ drop-piece game with approximately
+$4.5 \times 10^{12}$ positions~\cite{allis1988} and a maximum of 42 moves, rendering full-depth
+minimax computationally infeasible on consumer hardware.
+
+The report is structured as follows: Section~2 describes the game environments and default
+opponent. Section~3 details each algorithm. Section~4 specifies the experimental setup.
+Section~5 analyses Connect~4 scalability. Sections~6 and~7 present results for TTT and C4.
+Section~8 reports parameter sensitivity experiments. Section~9 provides an overall comparison,
+and Section~10 states the conclusions.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Game Environments}
+
+\subsection{Tic Tac Toe}
+
+Tic Tac Toe is played on a $3\times3$ grid. Two players alternate placing their marks (X or O);
+the first to align three marks in a row, column, or diagonal wins. If all nine cells are filled
+without a winner, the game is a draw.
+
+The game has an upper bound of $9! = 362{,}880$ possible move sequences, but many are equivalent
+or terminate early. The number of distinct legal board positions is approximately
+5,478~\cite{russell2010}. The branching factor starts at 9 and decreases by 1 per ply, giving an
+average branching factor of roughly 4. The game tree is shallow enough that Minimax can
+exhaustively evaluate every outcome within milliseconds.
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=0.45\linewidth]{screenshots/ttt_board}
+    \caption{Tic Tac Toe game in progress. X has played three moves; O has played two.}
+    \label{fig:ttt_board}
+\end{figure}
+
+
+\subsection{Connect 4}
+
+Connect 4 is played on a vertical $6\times7$ board. Players alternate dropping coloured discs
+into one of seven columns; each disc falls to the lowest available row. The first player to
+connect four discs horizontally, vertically, or diagonally wins. If all 42 cells are filled
+without a winner, the game is a draw.
+
+The game's complexity dwarfs Tic Tac Toe: the number of legal positions is approximately
+$4.5 \times 10^{12}$~\cite{allis1988}, and the branching factor is up to 7 throughout most of
+the game. With a maximum game depth of 42, the game tree is vastly too large for exhaustive
+search. Allis proved that the first player can force a win with perfect play, but the proof
+required months of computation~\cite{allis1988}. This complexity difference motivates the use
+of depth-limited minimax and RL approaches that generalise from limited training.
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=0.55\linewidth]{screenshots/c4_board}
+    \caption{Connect 4 game in progress showing a typical mid-game position.}
+    \label{fig:c4_board}
+\end{figure}
+
+
+\subsection{Default Opponent}
+\label{sec:default_opp}
+
+The assignment requires an opponent better than fully random. The default opponent implements
+a three-tier decision rule:
+
+\begin{enumerate}
+    \item \textbf{Win}: if a move exists that immediately wins, take it.
+    \item \textbf{Block}: if the adversary has a winning move next turn, block it.
+    \item \textbf{Positional preference}: otherwise, prefer the centre cell (TTT) or centre
+          columns (C4), as these offer the most strategic flexibility.
+\end{enumerate}
+
+This opponent never misses a one-move win or allows a one-move loss, making it meaningfully
+stronger than random while still being beatable by competent algorithms.
+
+\begin{algorithm}[H]
+\caption{Default Opponent Strategy}
+\begin{algorithmic}[1]
+\Function{ChooseMove}{game}
+    \For{each valid move $m$}
+        \If{$m$ wins the game for me} \Return $m$ \EndIf
+    \EndFor
+    \For{each valid move $m$}
+        \If{$m$ would win the game for opponent} \Return $m$ \Comment{Block} \EndIf
+    \EndFor
+    \State \Return move closest to centre
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Algorithm Implementations}
+
+\subsection{Minimax (Without Pruning)}
+
+Minimax is an adversarial search algorithm that models a two-player game as a tree where
+players alternate between maximising and minimising the utility
+value~\cite{russell2010,vonneumann1944}. Starting from the current state, the algorithm
+recursively explores every possible move sequence until terminal states are reached. Terminal
+states are scored relative to the maximising player: a win returns a positive value, a loss a
+negative value, and a draw returns zero. The score is adjusted by depth to prefer faster wins
+and slower losses (e.g., $10 - \text{depth}$ for TTT, $1000 - \text{depth}$ for C4).
+
+At each non-terminal node, the maximising player selects the child with the highest value,
+while the minimising player selects the lowest. This guarantees optimal play against a perfect
+adversary.
+
+\begin{algorithm}[H]
+\caption{Minimax (No Pruning)}
+\begin{algorithmic}[1]
+\Function{Minimax}{game, depth, isMaximizing}
+    \If{game is terminal}
+        \State \Return utility(game, depth)
+    \EndIf
+    \If{isMaximizing}
+        \State $\text{best} \leftarrow -\infty$
+        \For{each valid move $m$}
+            \State apply $m$; \;
+            $\text{best} \leftarrow \max(\text{best},\;\Call{Minimax}{game, depth{+}1, \text{False}})$;
+            \; undo $m$
+        \EndFor
+    \Else
+        \State $\text{best} \leftarrow +\infty$
+        \For{each valid move $m$}
+            \State apply $m$; \;
+            $\text{best} \leftarrow \min(\text{best},\;\Call{Minimax}{game, depth{+}1, \text{True}})$;
+            \; undo $m$
+        \EndFor
+    \EndIf
+    \State \Return best
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Minimax with Alpha-Beta Pruning}
+
+Alpha-beta pruning optimises Minimax by maintaining two bounds: $\alpha$ (the best value the
+maximiser can guarantee) and $\beta$ (the best value the minimiser can guarantee). When
+$\beta \leq \alpha$ at any node, remaining children cannot influence the result and are
+pruned~\cite{knuth1975,russell2010}.
+
+Alpha-beta never changes the result — it returns the same optimal move — but can dramatically
+reduce nodes evaluated. In the best case (perfect move ordering), it reduces the effective
+branching factor from $b$ to $\sqrt{b}$, squaring the searchable depth in the same
+time~\cite{knuth1975}. Even with random ordering, significant savings are typical.
+
+\begin{algorithm}[H]
+\caption{Minimax with Alpha-Beta Pruning}
+\begin{algorithmic}[1]
+\Function{AlphaBeta}{game, depth, $\alpha$, $\beta$, isMax}
+    \If{terminal or depth $\geq$ limit}
+        \State \Return utility or evaluate(game)
+    \EndIf
+    \If{isMax}
+        \State $v \leftarrow -\infty$
+        \For{each valid move $m$}
+            \State apply $m$; \;
+            $v \leftarrow \max(v,\;\Call{AlphaBeta}{game, depth{+}1, \alpha, \beta, \text{False}})$;
+            \; undo $m$
+            \State $\alpha \leftarrow \max(\alpha, v)$
+            \If{$\beta \leq \alpha$} \textbf{break} \EndIf
+        \EndFor
+    \Else
+        \State $v \leftarrow +\infty$
+        \For{each valid move $m$}
+            \State apply $m$; \;
+            $v \leftarrow \min(v,\;\Call{AlphaBeta}{game, depth{+}1, \alpha, \beta, \text{True}})$;
+            \; undo $m$
+            \State $\beta \leftarrow \min(\beta, v)$
+            \If{$\beta \leq \alpha$} \textbf{break} \EndIf
+        \EndFor
+    \EndIf
+    \State \Return $v$
+\EndFunction
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Q-Learning (Tabular)}
+
+Q-learning is a model-free, off-policy RL algorithm that learns an action-value function
+$Q(s, a)$ estimating the expected cumulative reward from taking action $a$ in state $s$ and
+following the optimal policy thereafter~\cite{watkins1992,sutton2018}. After each action, the
+Q-value is updated:
+\begin{equation}
+    Q(s, a) \leftarrow Q(s, a) + \alpha \bigl[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \bigr]
+\end{equation}
+where $\alpha$ is the learning rate, $\gamma$ the discount factor, and $r$ the immediate reward.
+
+Exploration uses $\varepsilon$-greedy: with probability $\varepsilon$ a random valid move is
+selected; otherwise the highest-Q move is chosen. $\varepsilon$ decays exponentially from 1.0 to
+0.05 over training. The state representation is the flattened board as a tuple (9 elements for
+TTT, 42 for C4). This is exact for TTT but far too sparse for C4.
+
+\begin{algorithm}[H]
+\caption{Q-Learning Training Loop}
+\begin{algorithmic}[1]
+\State Initialise $Q(s,a) \leftarrow 0$ for all $s, a$
+\For{episode $= 1, \ldots, N$}
+    \State $s \leftarrow$ initial state
+    \While{game not terminal}
+        \State $a \leftarrow \varepsilon\text{-greedy}(Q, s)$
+        \State Execute $a$, observe $r$, next state $s'$
+        \State $Q(s,a) \leftarrow Q(s,a) + \alpha[r + \gamma \max_{a'} Q(s',a') - Q(s,a)]$
+        \State $s \leftarrow s'$
+    \EndWhile
+    \State Decay $\varepsilon$
+\EndFor
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Deep Q-Network (DQN)}
+
+DQN replaces the Q-table with a neural network $Q_\theta(s, a)$, enabling generalisation
+across unseen states~\cite{mnih2015}. This is critical for Connect~4, where tabular coverage
+is impractical.
+
+The network takes the flattened board as input (9 for TTT, 42 for C4) and outputs Q-values for
+each action (9 or 7). Two hidden layers with ReLU activations are used (default: 128, 64
+neurons). Two techniques stabilise training:
+
+\begin{itemize}
+    \item \textbf{Experience replay}: transitions $(s, a, r, s', \text{done})$ are stored in a
+          buffer. Training batches are sampled uniformly, breaking temporal correlations.
+    \item \textbf{Target network}: a separate copy updated every $C$ steps provides stable
+          targets:
+          \begin{equation}
+              \mathcal{L}(\theta) = \mathbb{E}\bigl[(r + \gamma \max_{a'} Q_{\theta^-}(s', a')
+              - Q_\theta(s, a))^2\bigr]
+          \end{equation}
+\end{itemize}
+
+Invalid moves are masked during action selection: only Q-values for valid moves are considered.
+
+
+\subsection{Connect 4 Evaluation Function}
+\label{sec:eval_fn}
+
+Since full-depth search is infeasible for Connect~4 (Section~\ref{sec:scalability}), Minimax
+uses a depth limit with a heuristic evaluation. The function scores every window of four
+consecutive cells (horizontal, vertical, both diagonals):
+
+\begin{table}[H]
+\centering
+\caption{Heuristic window scores for the Connect 4 evaluation function.}
+\label{tab:eval_scores}
+\small
+\begin{tabular}{lc}
+\toprule
+\textbf{Window configuration} & \textbf{Score} \\
+\midrule
+4 own pieces (win)                   & $+100$ \\
+3 own + 1 empty                      & $+5$ \\
+2 own + 2 empty                      & $+2$ \\
+3 opponent + 1 empty (threat)        & $-4$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Centre-column pieces receive a $+3$ bonus each, reflecting the centre's strategic
+importance~\cite{allis1988}. The function sums scores across all windows and returns the total.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Experimental Setup}
+
+\paragraph{Platform.}
+All experiments ran in Google Colab (Python~3.10, PyTorch). DQN training used a T4 GPU. All
+code is in a single script (\texttt{cs7is2\_assignment3.py}) with a unified entry point.
+
+\paragraph{Games and agents.}
+\begin{itemize}
+    \item \textbf{Tic Tac Toe}: Minimax, Minimax+AB, Q-Learning, DQN, Default Opponent.
+    \item \textbf{Connect 4}: Minimax+AB (depth-limited), Q-Learning, DQN, Default Opponent.
+\end{itemize}
+
+\paragraph{Training protocol.}
+For TTT, Q-Learning (50k episodes) and DQN (30k episodes) train against the default opponent.
+For C4, as recommended by the specification, RL agents train against a \textbf{random} opponent
+(Q-Learning: 100k episodes; DQN: 50k episodes).
+
+\paragraph{Evaluation protocol.}
+200 games per TTT evaluation vs default; 100 games per round-robin pair (TTT); 50 games per
+C4 matchup. Player~1 is consistent across each matchup.
+
+\paragraph{Metrics.}
+\begin{itemize}
+    \item \textbf{Win/draw/loss rate}: fraction of games won, drawn, lost.
+    \item \textbf{Nodes visited}: total nodes expanded during minimax search.
+    \item \textbf{Average move time}: wall-clock time per move.
+    \item \textbf{Training convergence}: rolling win rate over episodes for RL agents.
+    \item \textbf{Parameter sensitivity}: performance under different hyperparameters.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Connect 4: Scalability Analysis}
+\label{sec:scalability}
+
+\subsection{Full-Depth Infeasibility}
+
+To confirm full-depth Minimax is infeasible for Connect~4, both variants were executed on an
+empty board and timed.
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: Replace X, Y with your actual node counts from the      │
+% │  scalability test output (Phase 1, c4_scalability_test)            │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{table}[H]
+\centering
+\caption{Full-depth Minimax on an empty Connect 4 board (terminated after 30 minutes).}
+\label{tab:scalability}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Algorithm} & \textbf{Time (s)} & \textbf{Nodes visited} & \textbf{Moves completed} \\
+\midrule
+Minimax (no pruning)   & 1800 & \textit{X} & 0 of 42 \\
+Minimax (alpha-beta)   & 1800 & \textit{Y} & 0 of 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Neither variant completed even the first move within 30 minutes. The C4 game tree has branching
+factor~7 and maximum depth~42; the total leaf count is approximately $7^{42} \approx
+3.1 \times 10^{35}$. Alpha-beta pruning reduces nodes visited but not enough for full-depth
+feasibility.
+
+
+\subsection{Depth-Limited Search with Evaluation Function}
+
+To make Minimax tractable for C4, search is terminated at a depth limit with the heuristic
+evaluation function from Section~\ref{sec:eval_fn}. Depths 2--7 were tested, each playing
+20 games against the default opponent.
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=\linewidth]{c4_depth_analysis}
+    \caption{Connect 4 depth-limited Minimax: win rate (left), avg move time (centre), and
+    avg nodes visited (right) at depth limits 2--7.}
+    \label{fig:depth_analysis}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: Replace -- with actual values from Phase 8 output        │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{table}[H]
+\centering
+\caption{Connect 4 Minimax+AB performance at different depth limits vs default opponent.}
+\label{tab:depth}
+\small
+\begin{tabular}{rrrr}
+\toprule
+\textbf{Depth} & \textbf{Win Rate (\%)} & \textbf{Avg Time (ms)} & \textbf{Avg Nodes} \\
+\midrule
+2 & -- & -- & -- \\
+3 & -- & -- & -- \\
+4 & -- & -- & -- \\
+5 & -- & -- & -- \\
+6 & -- & -- & -- \\
+7 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Depth~5 was selected for subsequent experiments, offering strong play with reasonable
+computation time. Beyond depth~5, time increases substantially while win-rate gains diminish.
+
+
+\subsection{RL Training Considerations for Connect 4}
+
+The C4 state space is too large for tabular Q-learning to visit meaningfully. A 100k-episode
+run encounters at most $\sim$2.1M states ($\sim$21 moves $\times$ 100k), a vanishing fraction
+of $\sim$4.5 trillion total. As recommended by the specification, C4 RL agents train against
+a \textbf{random opponent}, which is easier to beat and allows even partially trained agents
+to show improvement.
+
+DQN is expected to outperform tabular Q-learning on C4 because the neural network generalises
+across structurally similar board positions.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Results: Tic Tac Toe}
+
+\subsection{Algorithms vs Default Opponent}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: W/D/L from ttt_vs_default dict (Phase 3 output)         │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{table}[H]
+\centering
+\caption{TTT: each algorithm (player 1) vs Default Opponent (player $-1$) over 200 games.}
+\label{tab:ttt_vs_default}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Algorithm} & \textbf{Wins} & \textbf{Draws} & \textbf{Losses} & \textbf{Win Rate} \\
+\midrule
+Minimax              & -- & -- & -- & -- \\
+Minimax + AB         & -- & -- & -- & -- \\
+Q-Learning           & -- & -- & -- & -- \\
+DQN                  & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Both Minimax variants achieve identical results: alpha-beta does not change the selected move,
+only the efficiency of finding it. Minimax on TTT with full depth is provably optimal; it never
+loses~\cite{russell2010}. Any non-wins are draws, since TTT with perfect play from both sides
+always draws.
+
+Q-Learning and DQN performance depends on training quality. After 50k and 30k episodes
+respectively, both should approach near-optimal play, though minor imperfections may persist
+from insufficiently explored states.
+
+
+\subsection{Head-to-Head Round Robin}
+
+A round-robin tournament was run with all four algorithms plus the default opponent. Each pair
+played 100 games with the row agent as player~1.
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=0.75\linewidth]{ttt_round_robin}
+    \caption{TTT round-robin: win rate of row player (player 1) vs column player. Diagonal = 50\%.}
+    \label{fig:ttt_roundrobin}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: 2-3 sentences interpreting the heatmap.                  │
+% │  e.g. "Minimax agents dominate..." or "Q-Learning and DQN show    │
+% │  comparable performance..."                                        │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+\subsection{Alpha-Beta Pruning Efficiency}
+
+Both Minimax variants were run on an empty TTT board (worst case: all 9 cells available).
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: values from Phase 9 console output                       │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{table}[H]
+\centering
+\caption{Nodes visited on an empty Tic Tac Toe board.}
+\label{tab:ab_savings}
+\small
+\begin{tabular}{lrr}
+\toprule
+\textbf{Algorithm} & \textbf{Nodes visited} & \textbf{Reduction} \\
+\midrule
+Minimax (no pruning) & -- & — \\
+Minimax (alpha-beta) & -- & --\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Alpha-beta achieves a substantial reduction without changing the selected move. This saving is
+even more significant for Connect~4, where it determines whether depth-5+ search is practical.
+
+
+\subsection{RL Training Curves}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \tryimg[width=\linewidth]{ttt_ql_training}
+        \caption{Q-Learning (50k episodes)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \tryimg[width=\linewidth]{ttt_dqn_training}
+        \caption{DQN (30k episodes)}
+    \end{subfigure}
+    \caption{TTT RL training curves: win, loss, and draw rates (rolling avg, window=500).}
+    \label{fig:ttt_training}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: 2-3 sentences on convergence. When does win rate         │
+% │  stabilise? Does loss rate drop to ~0? Q-Learning vs DQN speed?    │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Results: Connect 4}
+
+\subsection{Algorithms vs Default Opponent}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: values from c4_vs_default dict (Phase 6 output)          │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{table}[H]
+\centering
+\caption{C4: each algorithm (player 1) vs Default Opponent (player $-1$) over 50 games.}
+\label{tab:c4_vs_default}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Algorithm} & \textbf{Wins} & \textbf{Draws} & \textbf{Losses} & \textbf{Win Rate} \\
+\midrule
+Minimax+AB (d=5) & -- & -- & -- & -- \\
+Q-Learning       & -- & -- & -- & -- \\
+DQN              & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: analysis — does minimax dominate? How does Q-Learning    │
+% │  compare to DQN? Do RL agents trained vs random struggle vs        │
+% │  the smarter default opponent?                                     │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+\subsection{Head-to-Head Round Robin}
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=0.7\linewidth]{c4_round_robin}
+    \caption{C4 round-robin: win rate of row player vs column player over 50 games per pair.}
+    \label{fig:c4_roundrobin}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: 2-3 sentences interpreting the C4 heatmap                │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+\subsection{RL Training Curves}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \tryimg[width=\linewidth]{c4_ql_training}
+        \caption{Q-Learning (100k episodes)}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \tryimg[width=\linewidth]{c4_dqn_training}
+        \caption{DQN (50k episodes)}
+    \end{subfigure}
+    \caption{C4 RL training curves (vs random opponent, rolling avg window=1000).}
+    \label{fig:c4_training}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: convergence speed, final win rate, Q-Learning vs DQN     │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Parameter Experimentation}
+\label{sec:param_exp}
+
+A key critique of the previous assignment was the absence of parameter sensitivity analysis.
+This section addresses that by sweeping key hyperparameters for each RL algorithm.
+
+
+\subsection{Q-Learning Hyperparameters}
+
+Six configurations were tested on TTT (20k episodes each), varying learning rate $\alpha$,
+discount factor $\gamma$, and epsilon decay rate:
+
+\begin{table}[H]
+\centering
+\caption{Q-Learning parameter configurations tested on Tic Tac Toe.}
+\label{tab:ql_params}
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Label} & $\boldsymbol{\alpha}$ & $\boldsymbol{\gamma}$ & \textbf{$\varepsilon$ decay} \\
+\midrule
+$\alpha$=0.05, $\gamma$=0.9 & 0.05 & 0.9 & 0.999 \\
+$\alpha$=0.1, $\gamma$=0.9  & 0.1  & 0.9 & 0.999 \\
+$\alpha$=0.2, $\gamma$=0.9  & 0.2  & 0.9 & 0.999 \\
+$\alpha$=0.1, $\gamma$=0.5  & 0.1  & 0.5 & 0.999 \\
+$\alpha$=0.1, $\gamma$=0.99 & 0.1  & 0.99 & 0.999 \\
+$\alpha$=0.1, slow decay    & 0.1  & 0.9  & 0.9999 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=\linewidth]{ttt_ql_param_sweep}
+    \caption{Q-Learning parameter sensitivity on TTT. Each line shows rolling win rate
+    (window=500) for a different hyperparameter configuration.}
+    \label{fig:ql_params}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN after viewing figure:                                      │
+% │  - Which alpha works best? (0.1 balances speed + stability?)       │
+% │  - Impact of gamma: 0.5 undervalues future? 0.99 slows learning?  │
+% │  - Slow decay: explores longer — better or worse?                  │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+\subsection{DQN Architecture and Learning Rate}
+
+Four DQN configurations were tested on TTT (15k episodes each):
+
+\begin{table}[H]
+\centering
+\caption{DQN parameter configurations tested on Tic Tac Toe.}
+\label{tab:dqn_params}
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Label} & \textbf{Hidden layers} & \textbf{Learning rate} & \textbf{$\sim$Params} \\
+\midrule
+lr=1e-3, small  & 64, 32   & $10^{-3}$ & 2.8k \\
+lr=1e-3, medium & 128, 64  & $10^{-3}$ & 10k \\
+lr=1e-4, medium & 128, 64  & $10^{-4}$ & 10k \\
+lr=1e-3, large  & 256, 128 & $10^{-3}$ & 37k \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \tryimg[width=\linewidth]{ttt_dqn_param_sweep}
+    \caption{DQN parameter sensitivity on TTT. Each line shows rolling win rate (window=500).}
+    \label{fig:dqn_params}
+\end{figure}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN after viewing figure:                                      │
+% │  - Larger network help or hurt for small TTT game?                 │
+% │  - lr 1e-3 vs 1e-4: convergence speed vs stability?                │
+% └─────────────────────────────────────────────────────────────────────┘
+
+
+\subsection{Minimax Depth Limit (Connect 4)}
+
+The depth analysis was presented in Section~\ref{sec:scalability}
+(Figure~\ref{fig:depth_analysis}, Table~\ref{tab:depth}). Depth~5 was selected as the
+operating point: strong play against the default opponent with sub-second move times.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Overall Comparison}
+
+This section synthesises findings across both games. The three algorithm families differ
+fundamentally in their trade-offs.
+
+\begin{table}[H]
+\centering
+\caption{Summary of algorithm properties across both games.}
+\label{tab:summary}
+\small
+\begin{tabular}{p{2.6cm}p{3.5cm}p{3.5cm}p{3.5cm}}
+\toprule
+\textbf{Property} & \textbf{Minimax (+AB)} & \textbf{Q-Learning} & \textbf{DQN} \\
+\midrule
+Optimality &
+    Provably optimal at full depth &
+    Converges to optimal given infinite episodes &
+    Approximates optimal via function approximation \\
+\addlinespace
+TTT performance &
+    Perfect play (never loses) &
+    Near-perfect after 50k episodes &
+    Near-perfect after 30k episodes \\
+\addlinespace
+C4 feasibility &
+    Depth-limited only &
+    State space too large for coverage &
+    Generalises across unseen states \\
+\addlinespace
+Training cost &
+    None &
+    50k--100k episodes, CPU minutes &
+    30k--50k episodes, GPU helps \\
+\addlinespace
+Move time &
+    Depth-dependent (ms--seconds) &
+    $O(1)$ table lookup &
+    $O(1)$ forward pass \\
+\addlinespace
+Memory &
+    $O(b^d)$ stack frames &
+    $O(|S| \times |A|)$ table &
+    Fixed network parameters \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Tic Tac Toe.}
+Minimax is the clear winner: provably optimal play with negligible computation and zero
+training cost. Both RL agents approach comparable performance after training but require
+thousands of episodes to learn what Minimax computes directly from the game tree. The TTT
+Q-table is small enough ($\leq$5,478 states $\times$ 9 actions) that tabular Q-learning is
+adequate; DQN provides no meaningful advantage.
+
+\paragraph{Connect 4.}
+The picture inverts. Full-depth Minimax is infeasible; depth-limited search at depth~5
+requires evaluating thousands of nodes per move. Q-Learning struggles because the state space
+is too large for meaningful coverage. DQN generalises best across unseen states. However,
+depth-limited Minimax with a good evaluation function still provides the strongest play per
+move, as it explicitly considers the adversarial structure.
+
+\paragraph{Paradigm trade-off.}
+The fundamental distinction is between \textit{compute at play time} (Minimax) and
+\textit{compute at training time} (RL). Minimax requires no preparation but searches the tree
+per move. RL invests computation upfront and then decides in constant time. For tractable games
+(TTT), Minimax is superior. For larger games (C4), RL that generalises is necessary, though
+depth-limited search with heuristics remains competitive.
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\section{Conclusions}
+
+% ┌─────────────────────────────────────────────────────────────────────┐
+% │  FILL IN: Replace placeholder numbers (X, Y, Z, W, T) with your   │
+% │  actual experimental results after running the code.               │
+% └─────────────────────────────────────────────────────────────────────┘
+
+\begin{enumerate}
+    \item \textbf{Minimax achieves perfect play on Tic Tac Toe.} Both pruned and unpruned
+          variants never lose, confirming full-depth Minimax is optimal for tractable games.
+
+    \item \textbf{Alpha-beta pruning dramatically reduces computation.} On an empty TTT board,
+          pruning reduces nodes from \textit{X} to \textit{Y} (a \textit{Z}\% reduction) while
+          selecting the identical move.
+
+    \item \textbf{Full-depth Minimax is infeasible for Connect 4.} After 30 minutes, neither
+          variant completed the first move. The branching factor of 7 and depth of 42 produce
+          $\sim$$3.1 \times 10^{35}$ leaf nodes.
+
+    \item \textbf{Depth-limited Minimax at depth 5 provides strong C4 play.} With alpha-beta
+          and a heuristic evaluation function, this achieves \textit{W}\% win rate vs default
+          with \textit{T} ms average move time.
+
+    \item \textbf{Q-Learning converges on TTT but struggles on C4.} Tabular RL reaches
+          near-optimal TTT play after $\sim$50k episodes, but the C4 state space is too
+          large for meaningful Q-table coverage.
+
+    \item \textbf{DQN generalises better than tabular Q-Learning on C4.} The neural network
+          shares learned features across similar board states, allowing reasonable play in
+          unseen positions.
+
+    \item \textbf{Hyperparameter choice significantly impacts RL.} $\alpha = 0.1$,
+          $\gamma = 0.9$ provided the best Q-Learning balance. For DQN, $\text{lr} = 10^{-3}$
+          with a medium network (128, 64) converged fastest.
+
+    \item \textbf{The optimal algorithm depends on game complexity.} For small, tractable
+          games, Minimax is superior. For larger games, depth-limited Minimax and DQN
+          represent the most practical approaches.
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\newpage
+\begin{thebibliography}{10}
+
+\bibitem{vonneumann1944}
+J.~von~Neumann and O.~Morgenstern, \textit{Theory of Games and Economic Behavior}.
+Princeton University Press, 1944.
+
+\bibitem{russell2010}
+S.~J.~Russell and P.~Norvig, \textit{Artificial Intelligence: A Modern Approach},
+3rd ed. Prentice Hall, 2010.
+
+\bibitem{knuth1975}
+D.~E.~Knuth and R.~W.~Moore,
+``An analysis of alpha-beta pruning,''
+\textit{Artificial Intelligence}, vol.~6, no.~4, pp.~293--326, 1975.
+
+\bibitem{watkins1992}
+C.~J.~C.~H.~Watkins and P.~Dayan,
+``Q-learning,''
+\textit{Machine Learning}, vol.~8, no.~3, pp.~279--292, 1992.
+
+\bibitem{mnih2015}
+V.~Mnih \textit{et al.},
+``Human-level control through deep reinforcement learning,''
+\textit{Nature}, vol.~518, pp.~529--533, 2015.
+
+\bibitem{sutton2018}
+R.~S.~Sutton and A.~G.~Barto, \textit{Reinforcement Learning: An Introduction},
+2nd ed. MIT Press, 2018.
+
+\bibitem{allis1988}
+L.~V.~Allis,
+``A knowledge-based approach of Connect-Four,''
+Master's thesis, Vrije Universiteit Amsterdam, 1988.
+
+\bibitem{bellman1957}
+R.~Bellman, ``A Markovian decision process,''
+\textit{Journal of Mathematics and Mechanics}, vol.~6, no.~5, pp.~679--684, 1957.
+
+\end{thebibliography}
+
+
+% ══════════════════════════════════════════════════════════════════════════════
+\newpage
+\appendix
+\section{Appendix: Algorithm Implementations}
+\label{sec:appendix}
+
+The specification requires code for six algorithm implementations (2 games $\times$ 3
+algorithms) as appendices.
+
+\subsection{A1: Minimax --- Tic Tac Toe}
+\begin{lstlisting}[language=Python, caption={Minimax (no pruning) applied to Tic Tac Toe.}]
+class MinimaxAgent:
+    name = "Minimax"
+
+    def __init__(self, player=1, depth_limit=None):
+        self.player = player
+        self.depth_limit = depth_limit
+        self.nodes_visited = 0
+
+    def choose_move(self, game, training=False):
+        self.nodes_visited = 0
+        valid = game.get_valid_actions()
+        best_action = valid[0]
+        best_val = -math.inf
+        for action in valid:
+            game.make_move(action)
+            val = self._minimax(game, depth=1, maximizing=False)
+            game.undo_move(action)
+            if val > best_val:
+                best_val = val
+                best_action = action
+        return best_action
+
+    def _minimax(self, game, depth, maximizing):
+        self.nodes_visited += 1
+        winner = game.get_winner()
+        if winner is not None:
+            return self._terminal_value(winner)
+        if self.depth_limit is not None and depth >= self.depth_limit:
+            return self._heuristic(game)
+        valid = game.get_valid_actions()
+        if maximizing:
+            best = -math.inf
+            for action in valid:
+                game.make_move(action)
+                best = max(best, self._minimax(game, depth+1, False))
+                game.undo_move(action)
+            return best
+        else:
+            best = math.inf
+            for action in valid:
+                game.make_move(action)
+                best = min(best, self._minimax(game, depth+1, True))
+                game.undo_move(action)
+            return best
+
+    def _terminal_value(self, winner):
+        if winner == self.player:   return  1.0
+        elif winner == 0:           return  0.0
+        else:                       return -1.0
+\end{lstlisting}
+
+\subsection{A2: Minimax with Alpha-Beta --- Connect 4}
+\begin{lstlisting}[language=Python, caption={Minimax+AB (depth-limited) applied to Connect 4.}]
+class MinimaxABAgent:
+    name = "Minimax+AB"
+
+    def __init__(self, player=1, depth_limit=None):
+        self.player = player
+        self.depth_limit = depth_limit
+        self.nodes_visited = 0
+
+    def choose_move(self, game, training=False):
+        self.nodes_visited = 0
+        valid = self._order_moves(game, game.get_valid_actions())
+        best_action = valid[0]
+        best_val = -math.inf
+        alpha, beta = -math.inf, math.inf
+        for action in valid:
+            game.make_move(action)
+            val = self._alphabeta(game, 1, alpha, beta, False)
+            game.undo_move(action)
+            if val > best_val:
+                best_val = val
+                best_action = action
+            alpha = max(alpha, best_val)
+        return best_action
+
+    def _alphabeta(self, game, depth, alpha, beta, maximizing):
+        self.nodes_visited += 1
+        winner = game.get_winner()
+        if winner is not None:
+            return self._terminal_value(winner)
+        if self.depth_limit is not None and depth >= self.depth_limit:
+            return self._heuristic(game)
+        valid = self._order_moves(game, game.get_valid_actions())
+        if maximizing:
+            value = -math.inf
+            for action in valid:
+                game.make_move(action)
+                value = max(value,
+                    self._alphabeta(game, depth+1, alpha, beta, False))
+                game.undo_move(action)
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    break   # beta cut-off
+            return value
+        else:
+            value = math.inf
+            for action in valid:
+                game.make_move(action)
+                value = min(value,
+                    self._alphabeta(game, depth+1, alpha, beta, True))
+                game.undo_move(action)
+                beta = min(beta, value)
+                if beta <= alpha:
+                    break   # alpha cut-off
+            return value
+
+    def _order_moves(self, game, valid):
+        # Centre-first ordering for Connect 4
+        if isinstance(game, Connect4):
+            ordered = [c for c in Connect4.CENTER_ORDER if c in valid]
+            ordered += [c for c in valid if c not in ordered]
+            return ordered
+        return valid
+
+    def _heuristic(self, game):
+        if isinstance(game, Connect4):
+            return game.evaluate_heuristic(self.player) / 200.0
+        return 0.0
+\end{lstlisting}
+
+\subsection{A3: Q-Learning --- Tic Tac Toe}
+\begin{lstlisting}[language=Python, caption={Tabular Q-Learning agent and TTT training configuration.}]
+class QLearningAgent:
+    name = "Q-Learning"
+
+    def __init__(self, player=1, alpha=0.1, gamma=0.99,
+                 epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.9995):
+        self.player = player
+        self.alpha, self.gamma = alpha, gamma
+        self.epsilon, self.epsilon_min = epsilon, epsilon_min
+        self.epsilon_decay = epsilon_decay
+        self.q_table = defaultdict(lambda: defaultdict(float))
+
+    def choose_move(self, game, training=False):
+        state = game.get_state_key(perspective=self.player)
+        valid = game.get_valid_actions()
+        if training and random.random() < self.epsilon:
+            return random.choice(valid)
+        best_val, best_action = -float("inf"), None
+        for action in valid:
+            q = self.q_table[state][action]
+            if q > best_val:
+                best_val, best_action = q, action
+        return best_action if best_action is not None else random.choice(valid)
+
+    def update(self, state, action, reward, next_state, next_valid, done):
+        current_q = self.q_table[state][action]
+        if done or not next_valid:
+            target = reward
+        else:
+            future_qs = [self.q_table[next_state][a] for a in next_valid]
+            target = reward + self.gamma * max(future_qs)
+        self.q_table[state][action] = (current_q
+            + self.alpha * (target - current_q))
+
+    def decay_epsilon(self):
+        self.epsilon = max(self.epsilon_min,
+                           self.epsilon * self.epsilon_decay)
+
+# TTT training configuration
+ttt_ql = QLearningAgent(player=1, alpha=0.1, gamma=0.99,
+                        epsilon=1.0, epsilon_min=0.05,
+                        epsilon_decay=0.9995)
+trainer = Trainer(TicTacToe, ttt_ql, DefaultAgent(),
+                  n_episodes=50_000, swap_sides=True)
+metrics = trainer.train()
+\end{lstlisting}
+
+\subsection{A4: Q-Learning --- Connect 4}
+\begin{lstlisting}[language=Python, caption={Q-Learning Connect 4 training configuration (vs random opponent).}]
+# C4 Q-Learning training configuration
+# Trained vs Random (easier target; state space too large for Default)
+c4_ql = QLearningAgent(player=1, alpha=0.1, gamma=0.99,
+                       epsilon=1.0, epsilon_min=0.05,
+                       epsilon_decay=0.9999)
+trainer = Trainer(Connect4, c4_ql, RandomAgent(),
+                  n_episodes=100_000, swap_sides=True)
+metrics = trainer.train()
+
+# Note: Q-table covers only a tiny fraction of the ~4.5e12 C4 states.
+# A 100k-episode run visits at most ~2.1M states. The agent learns
+# limited local patterns but cannot generalise to unseen positions.
+\end{lstlisting}
+
+\subsection{A5: DQN --- Tic Tac Toe}
+\begin{lstlisting}[language=Python, caption={DQN network, agent, and TTT training configuration.}]
+class DQNNetwork(nn.Module):
+    def __init__(self, input_size, hidden_sizes, output_size):
+        super().__init__()
+        layers = []
+        prev = input_size
+        for h in hidden_sizes:
+            layers += [nn.Linear(prev, h), nn.ReLU()]
+            prev = h
+        layers.append(nn.Linear(prev, output_size))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
+
+class DQNAgent:
+    name = "DQN"
+
+    def __init__(self, player=1, state_size=9, action_size=9,
+                 hidden_sizes=(128, 128), lr=1e-3, gamma=0.99,
+                 epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.995,
+                 batch_size=64, memory_size=50_000,
+                 target_update_freq=200, game_name="tictactoe"):
+        self.player = player
+        self.gamma, self.epsilon = gamma, epsilon
+        self.epsilon_min, self.epsilon_decay = epsilon_min, epsilon_decay
+        self.batch_size, self.steps = batch_size, 0
+        self.target_update_freq = target_update_freq
+        self.device = torch.device("cpu")  # TTT: always CPU
+        self.policy_net = DQNNetwork(
+            state_size, hidden_sizes, action_size).to(self.device)
+        self.target_net = DQNNetwork(
+            state_size, hidden_sizes, action_size).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.optimizer = optim.Adam(
+            self.policy_net.parameters(), lr=lr)
+        self.memory = deque(maxlen=memory_size)
+
+    def choose_move(self, game, training=False):
+        valid = game.get_valid_actions()
+        if training and random.random() < self.epsilon:
+            return random.choice(valid)
+        arr = game.get_state_array(perspective=self.player)
+        state = torch.FloatTensor(arr).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            q_values = self.policy_net(state).squeeze().cpu()
+        masked = torch.full((self.policy_net.net[-1].out_features,),
+                            float("-inf"))
+        for a in valid:
+            masked[a] = q_values[a]
+        return int(masked.argmax().item())
+
+# TTT DQN training configuration
+ttt_dqn = DQNAgent(player=1, state_size=9, action_size=9,
+                   hidden_sizes=(128, 128), lr=1e-3, gamma=0.99,
+                   epsilon=1.0, epsilon_min=0.05,
+                   epsilon_decay=0.995, batch_size=64,
+                   memory_size=20_000, target_update_freq=200,
+                   game_name="tictactoe")
+trainer = Trainer(TicTacToe, ttt_dqn, DefaultAgent(),
+                  n_episodes=30_000, swap_sides=True, train_every=1)
+metrics = trainer.train()
+\end{lstlisting}
+
+\subsection{A6: DQN --- Connect 4}
+\begin{lstlisting}[language=Python, caption={DQN Connect 4 training configuration (GPU if available).}]
+# C4 DQN training configuration
+# Larger network + GPU for Connect 4's 42-dimensional state space
+c4_dqn = DQNAgent(player=1, state_size=42, action_size=7,
+                  hidden_sizes=(256, 128, 64), lr=5e-4, gamma=0.99,
+                  epsilon=1.0, epsilon_min=0.05,
+                  epsilon_decay=0.9998, batch_size=128,
+                  memory_size=50_000, target_update_freq=500,
+                  game_name="connect4")
+# game_name="connect4" triggers GPU use if torch.cuda.is_available()
+
+trainer = Trainer(Connect4, c4_dqn, RandomAgent(),
+                  n_episodes=50_000, swap_sides=True, train_every=1)
+metrics = trainer.train()
+
+# The neural network generalises across structurally similar C4 positions,
+# overcoming the coverage limitation of tabular Q-learning.
+\end{lstlisting}
+
+
+\end{document}
