@@ -9,7 +9,6 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend (works in Colab and scripts)
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 
 from utils.metrics import rolling_average
 
@@ -96,16 +95,17 @@ def plot_training_curve(win_history, title, save_path, window=500):
     _save(fig, save_path)
 
 
-def plot_dqn_loss(loss_history, title, save_path, window=200):
-    """Plot DQN training loss curve."""
+def plot_dqn_loss(loss_history, title, save_path, window=200, ylabel="Loss / TD Error"):
+    """Plot training loss or TD error curve. Works for both DQN and Q-Learning."""
     if not loss_history:
         return
-    smoothed = rolling_average(loss_history, min(window, len(loss_history)))
+    w = min(window, max(1, len(loss_history) // 4))
+    smoothed = rolling_average(loss_history, w)
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(loss_history, alpha=0.3, color="#999", linewidth=0.8, label="Raw loss")
-    ax.plot(smoothed, color="#e74c3c", label=f"Smoothed (w={window})")
-    ax.set_xlabel("Training Step")
-    ax.set_ylabel("Huber Loss")
+    ax.plot(loss_history, alpha=0.25, color="#999", linewidth=0.6, label="Raw")
+    ax.plot(smoothed, color="#e74c3c", linewidth=1.8, label=f"Smoothed (w={w})")
+    ax.set_xlabel("Update Step")
+    ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.legend()
     _save(fig, save_path)
@@ -115,7 +115,7 @@ def plot_dqn_loss(loss_history, title, save_path, window=200):
 # Evaluation charts                                                   #
 # ------------------------------------------------------------------ #
 
-def plot_win_rate_bar(results, game_name, save_path):
+def plot_win_rate_bar(results, game_name, save_path, opponent_name="Default"):
     """
     Grouped bar chart of W/D/L rates for each agent vs. a baseline.
     results: dict[agent_name -> {"win_rate", "draw_rate", "loss_rate"}]
@@ -129,49 +129,82 @@ def plot_win_rate_bar(results, game_name, save_path):
     w = 0.25
 
     fig, ax = plt.subplots(figsize=(max(8, len(names) * 2), 5))
-    ax.bar(x - w,   win_r,  w, label="Win",  color=PALETTE["win"])
-    ax.bar(x,       draw_r, w, label="Draw", color=PALETTE["draw"])
-    ax.bar(x + w,   loss_r, w, label="Loss", color=PALETTE["loss"])
+    bars_w = ax.bar(x - w, win_r,  w, label="Win",  color=PALETTE["win"])
+    bars_d = ax.bar(x,     draw_r, w, label="Draw", color=PALETTE["draw"])
+    bars_l = ax.bar(x + w, loss_r, w, label="Loss", color=PALETTE["loss"])
+
+    # Annotate each bar with its value
+    for bars in (bars_w, bars_d, bars_l):
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0.02:
+                ax.text(bar.get_x() + bar.get_width() / 2, h + 0.01,
+                        f"{h:.0%}", ha="center", va="bottom", fontsize=8)
 
     ax.set_xticks(x)
     ax.set_xticklabels(names, rotation=15, ha="right")
-    ax.set_ylim(0, 1.05)
+    ax.set_ylim(0, 1.15)
     ax.set_ylabel("Rate")
-    ax.set_title(f"{game_name}: Algorithm Comparison vs Default Opponent")
-    ax.legend()
-    ax.axhline(0.5, color="grey", linestyle=":", alpha=0.5)
+    ax.set_title(f"{game_name}: Win / Draw / Loss Rate vs {opponent_name} Opponent\n"
+                 f"(each agent evaluated over equal games as Player 1 and Player 2)")
+    ax.legend(loc="upper right")
+    ax.axhline(0.5, color="grey", linestyle=":", alpha=0.5, label="_nolegend_")
     _save(fig, save_path)
 
 
-def plot_heatmap(matrix, labels, title, save_path):
-    """
-    Win-rate heatmap for round-robin results.
-    matrix[i,j] = win rate of agents[i] when playing against agents[j].
-    """
+def _draw_heatmap_ax(ax, matrix, labels, title, cmap, cbar_label):
+    """Helper: draw a single heatmap onto an existing Axes."""
+    from matplotlib.colors import LinearSegmentedColormap
     n = len(labels)
-    fig, ax = plt.subplots(figsize=(max(6, n + 1), max(5, n)))
-    im = ax.imshow(matrix, cmap="RdYlGn", vmin=0, vmax=1, aspect="auto")
-
+    im = ax.imshow(matrix, cmap=cmap, vmin=0, vmax=1, aspect="auto")
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
     ax.set_xticklabels(labels, rotation=40, ha="right", fontsize=9)
     ax.set_yticklabels(labels, fontsize=9)
-    ax.set_xlabel("Opponent")
-    ax.set_ylabel("Agent")
-    ax.set_title(title)
-
+    ax.set_xlabel("Opponent  →", fontsize=9)
+    ax.set_ylabel("←  Agent", fontsize=9)
+    ax.set_title(title, fontsize=10, pad=8)
     for i in range(n):
         for j in range(n):
-            val = matrix[i, j]
-            color = "white" if val < 0.25 or val > 0.75 else "black"
             if i == j:
-                text = "—"
+                ax.text(j, i, "—", ha="center", va="center", color="#aaaaaa", fontsize=11)
             else:
-                text = f"{val:.0%}"
-            ax.text(j, i, text, ha="center", va="center",
-                    color=color, fontsize=10, fontweight="bold")
+                val = matrix[i, j]
+                color = "#333333" if 0.15 <= val <= 0.85 else "#555555"
+                ax.text(j, i, f"{val:.0%}", ha="center", va="center",
+                        color=color, fontsize=10, fontweight="bold")
+    plt.colorbar(im, ax=ax, label=cbar_label, shrink=0.8, pad=0.02)
 
-    plt.colorbar(im, ax=ax, label="Win Rate", shrink=0.8)
+
+def plot_heatmap(matrix, labels, title, save_path, draw_matrix=None):
+    """
+    Round-robin heatmap.  If draw_matrix is provided, saves two side-by-side
+    heatmaps in one image: left = win rate, right = draw rate.
+    Each game is played swap_sides=True so win rates are averaged over P1 and P2.
+    """
+    from matplotlib.colors import LinearSegmentedColormap
+    win_cmap  = LinearSegmentedColormap.from_list(
+        "pastel_rg", ["#f4a8a8", "#fdf6f0", "#a8d5b5"], N=256)
+    draw_cmap = LinearSegmentedColormap.from_list(
+        "pastel_bu", ["#fdf6f0", "#b8d4f0", "#5a9fd4"], N=256)
+
+    n = len(labels)
+    ncols = 2 if draw_matrix is not None else 1
+    fig, axes = plt.subplots(1, ncols,
+                             figsize=(max(6, n * 1.5) * ncols + 1, max(5, n * 1.2)))
+    if ncols == 1:
+        axes = [axes]
+
+    _draw_heatmap_ax(axes[0], matrix, labels,
+                     "Win Rate\n(row agent goes first, col agent goes second)",
+                     win_cmap, "Win Rate")
+
+    if draw_matrix is not None:
+        _draw_heatmap_ax(axes[1], draw_matrix, labels,
+                         "Draw Rate\n(row agent goes first, col agent goes second)",
+                         draw_cmap, "Draw Rate")
+
+    fig.suptitle(title, fontsize=12, fontweight="bold", y=1.02)
     _save(fig, save_path)
 
 
@@ -194,9 +227,9 @@ def plot_param_sweep(sweep_results, param_name, title, save_path, window=500):
 
     ax.set_ylim(0, 1)
     ax.set_xlabel("Episode")
-    ax.set_ylabel(f"Win Rate (rolling avg)")
+    ax.set_ylabel("Win Rate (rolling avg)")
     ax.set_title(title)
-    ax.legend(loc="lower right", fontsize=8)
+    ax.legend(loc="lower right", fontsize=8, title=param_name)
     ax.axhline(0.5, color="grey", linestyle=":", alpha=0.4)
     _save(fig, save_path)
 
@@ -283,4 +316,207 @@ def plot_node_comparison(results, save_path):
     for i, v in enumerate(times):
         axes[1].text(i, v * 1.02, f"{v:.1f}ms", ha="center", fontsize=9)
 
+    _save(fig, save_path)
+
+
+# ------------------------------------------------------------------ #
+# Additional analysis plots                                           #
+# ------------------------------------------------------------------ #
+
+def plot_epsilon_decay(n_episodes, epsilon_start, epsilon_min, epsilon_decay, title, save_path):
+    """Show how epsilon decays over episodes."""
+    eps = epsilon_start
+    values = []
+    for _ in range(n_episodes):
+        values.append(eps)
+        eps = max(epsilon_min, eps * epsilon_decay)
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(values, color="#9C27B0", linewidth=1.5)
+    ax.axhline(epsilon_min, color="grey", linestyle="--", alpha=0.6,
+               label=f"Min ε = {epsilon_min}")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Epsilon (ε)")
+    ax.set_title(title)
+    ax.legend()
+    _save(fig, save_path)
+
+
+def plot_ql_qtable_growth(q_size_history, title, save_path):
+    """Plot how many unique states Q-Learning has discovered over training."""
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(q_size_history, color="#FF9800", linewidth=1.5)
+    ax.set_xlabel("Episode")
+    ax.set_ylabel("Unique States in Q-Table")
+    ax.set_title(title)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}"))
+    _save(fig, save_path)
+
+
+def plot_combined_loss(ql_loss, dqn_loss, game_name, save_path):
+    """Side-by-side loss curves: QL TD error vs DQN Huber loss."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+
+    # Q-Learning TD error
+    if ql_loss:
+        w = min(500, len(ql_loss) // 4 or 1)
+        smoothed = rolling_average(ql_loss, w)
+        axes[0].plot(ql_loss, alpha=0.2, color="#FF9800", linewidth=0.6, label="Raw")
+        axes[0].plot(smoothed, color="#FF9800", linewidth=1.8, label=f"Smoothed (w={w})")
+        axes[0].set_title(f"{game_name}: Q-Learning TD Error")
+        axes[0].set_xlabel("Update Step")
+        axes[0].set_ylabel("|TD Error|")
+        axes[0].legend()
+
+    # DQN Huber loss
+    if dqn_loss:
+        w = min(500, len(dqn_loss) // 4 or 1)
+        smoothed = rolling_average(dqn_loss, w)
+        axes[1].plot(dqn_loss, alpha=0.2, color="#E91E63", linewidth=0.6, label="Raw")
+        axes[1].plot(smoothed, color="#E91E63", linewidth=1.8, label=f"Smoothed (w={w})")
+        axes[1].set_title(f"{game_name}: DQN Huber Loss")
+        axes[1].set_xlabel("Training Step")
+        axes[1].set_ylabel("Huber Loss")
+        axes[1].legend()
+
+    fig.suptitle(f"{game_name}: Training Loss Comparison", fontweight="bold")
+    _save(fig, save_path)
+
+
+def plot_winrate_over_time(histories, labels, title, save_path, window=500):
+    """
+    Overlay win-rate curves for multiple agents on one chart.
+    histories: list of win_history lists
+    labels: list of agent names
+    """
+    colors = [PALETTE.get(l, "#607D8B") for l in labels]
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    for history, label, color in zip(histories, labels, colors):
+        w = min(window, len(history) // 4 or 1)
+        smoothed = rolling_average([1 if x == 1 else 0 for x in history], w)
+        # Pad shorter histories so they align
+        ax.plot(smoothed, label=label, color=color, alpha=0.85, linewidth=1.8)
+
+    ax.set_ylim(0, 1)
+    ax.axhline(0.5, color="grey", linestyle=":", alpha=0.4, label="50% baseline")
+    ax.set_xlabel("Episode")
+    ax.set_ylabel(f"Win Rate (rolling avg, w={window})")
+    ax.set_title(title)
+    ax.legend()
+    _save(fig, save_path)
+
+
+def plot_game_length_dist(game_lengths_dict, title, save_path):
+    """
+    Histogram of game lengths per agent.
+    game_lengths_dict: dict[agent_name -> list[int]]
+    """
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(game_lengths_dict)))
+    for (name, lengths), color in zip(game_lengths_dict.items(), colors):
+        ax.hist(lengths, bins=20, alpha=0.5, label=name, color=color, edgecolor="white")
+    ax.set_xlabel("Game Length (moves)")
+    ax.set_ylabel("Frequency")
+    ax.set_title(title)
+    ax.legend()
+    _save(fig, save_path)
+
+
+def plot_first_player_bias(results_dict, title, save_path, opponent_name="Default"):
+    """
+    Grouped bar chart showing win+draw rate as P1 vs P2 for each agent.
+    results_dict: {agent_name -> stats} where stats has p1/p2 win/draw rates.
+    """
+    names = [n for n, s in results_dict.items()
+             if "p1_win_rate" in s and (s["p1_win_rate"] + s["p2_win_rate"]) > 0]
+    if not names:
+        return
+
+    p1_wr = [results_dict[n]["p1_win_rate"]  for n in names]
+    p2_wr = [results_dict[n]["p2_win_rate"]  for n in names]
+    p1_dr = [results_dict[n]["p1_draw_rate"] for n in names]
+    p2_dr = [results_dict[n]["p2_draw_rate"] for n in names]
+
+    x = np.arange(len(names))
+    w = 0.2
+    fig, ax = plt.subplots(figsize=(max(9, len(names) * 2.5), 6))
+
+    b1w = ax.bar(x - 1.5*w, p1_wr, w, label="P1 Win",  color="#7BB8F5", alpha=0.95)
+    b1d = ax.bar(x - 0.5*w, p1_dr, w, label="P1 Draw", color="#B8D8F5", alpha=0.95)
+    b2w = ax.bar(x + 0.5*w, p2_wr, w, label="P2 Win",  color="#FFB347", alpha=0.95)
+    b2d = ax.bar(x + 1.5*w, p2_dr, w, label="P2 Draw", color="#FFD9A0", alpha=0.95)
+
+    for bars in (b1w, b1d, b2w, b2d):
+        for bar in bars:
+            h = bar.get_height()
+            if h > 0.03:
+                ax.text(bar.get_x() + bar.get_width() / 2, h + 0.01,
+                        f"{h:.0%}", ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=15, ha="right")
+    ax.set_ylim(0, 1.2)
+    ax.set_ylabel("Rate")
+    ax.set_title(f"{title}\nOpponent: {opponent_name}  |  P1 = goes first, P2 = goes second")
+    ax.axhline(0.5, color="grey", linestyle=":", alpha=0.5)
+    ax.legend(loc="upper right", ncol=2)
+    _save(fig, save_path)
+
+
+def plot_curriculum_training(stage_histories, title, save_path, window=500):
+    """
+    Training curve across curriculum stages with vertical stage-boundary lines.
+    stage_histories: list of {"label", "win_history"}
+    """
+    fig, ax = plt.subplots(figsize=(14, 5))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(stage_histories)))
+
+    offset = 0
+    boundaries = []
+
+    for sh, color in zip(stage_histories, colors):
+        hist = sh["win_history"]
+        w = min(window, max(1, len(hist) // 4))
+        smoothed = rolling_average([1 if x == 1 else 0 for x in hist], w)
+        episodes = np.arange(offset, offset + len(hist))
+        ax.plot(episodes, smoothed, color=color, linewidth=1.8, label=sh["label"])
+        if offset > 0:
+            boundaries.append(offset)
+        offset += len(hist)
+
+    for b in boundaries:
+        ax.axvline(b, color="grey", linestyle="--", alpha=0.5, linewidth=1)
+
+    ax.set_ylim(0, 1)
+    ax.set_xlabel("Episode (across all stages)")
+    ax.set_ylabel(f"Win Rate (rolling avg, w={window})")
+    ax.set_title(title)
+    ax.axhline(0.5, color="grey", linestyle=":", alpha=0.3)
+    ax.legend(title="Stage")
+    _save(fig, save_path)
+
+
+def plot_move_limit_comparison(results_dict, title, save_path):
+    """
+    Bar chart comparing win/draw/loss rates under different move limits.
+    results_dict: {label -> {"win_rate", "draw_rate", "loss_rate"}}
+    """
+    labels = list(results_dict.keys())
+    win_r  = [results_dict[l]["win_rate"]  for l in labels]
+    draw_r = [results_dict[l]["draw_rate"] for l in labels]
+    loss_r = [results_dict[l]["loss_rate"] for l in labels]
+
+    x = np.arange(len(labels))
+    w = 0.25
+    fig, ax = plt.subplots(figsize=(max(8, len(labels) * 2), 5))
+    ax.bar(x - w, win_r,  w, label="Win",  color=PALETTE["win"])
+    ax.bar(x,     draw_r, w, label="Draw", color=PALETTE["draw"])
+    ax.bar(x + w, loss_r, w, label="Loss", color=PALETTE["loss"])
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=15, ha="right")
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("Rate")
+    ax.set_title(title)
+    ax.legend()
     _save(fig, save_path)

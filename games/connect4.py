@@ -17,11 +17,13 @@ class Connect4:
     # Column preference for move ordering (center-first)
     CENTER_ORDER = [3, 2, 4, 1, 5, 0, 6]
 
-    def __init__(self):
+    def __init__(self, move_limit=None):
         self.board = np.zeros((self.ROWS, self.COLS), dtype=np.int8)
         self.current_player = self.PLAYER_1
         self._heights = [0] * self.COLS  # pieces dropped per column
         self._winner = None
+        self.move_limit = move_limit   # if set, game is forced draw after this many moves
+        self._move_count = 0
 
     # ------------------------------------------------------------------ #
     # Core interface                                                        #
@@ -32,14 +34,16 @@ class Connect4:
         self.current_player = self.PLAYER_1
         self._heights = [0] * self.COLS
         self._winner = None
+        self._move_count = 0
         return self
 
     def clone(self):
-        g = Connect4()
+        g = Connect4(move_limit=self.move_limit)
         g.board = self.board.copy()
         g.current_player = self.current_player
         g._heights = self._heights.copy()
         g._winner = self._winner
+        g._move_count = self._move_count
         return g
 
     def get_valid_actions(self):
@@ -52,6 +56,12 @@ class Connect4:
         row = self.ROWS - 1 - self._heights[col]
         self.board[row, col] = self.current_player
         self._heights[col] += 1
+        self._move_count += 1
+        # Move limit: forced draw when total moves exceed cap
+        if self.move_limit is not None and self._move_count >= self.move_limit:
+            self._winner = 0
+            self.current_player *= -1
+            return 0.0, True
         winner = self._check_winner(row, col)
         if winner is not None:
             self._winner = winner
@@ -69,6 +79,7 @@ class Connect4:
         self.board[row, col] = 0
         self.current_player *= -1
         self._winner = None
+        self._move_count -= 1
 
     def is_terminal(self):
         return self.get_winner() is not None

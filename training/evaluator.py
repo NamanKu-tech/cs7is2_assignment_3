@@ -30,6 +30,9 @@ class Evaluator:
           agent1_nodes (list), agent2_nodes (list)
         """
         wins = draws = losses = 0
+        # first-player bias tracking
+        p1_wins = p1_draws = p1_losses = 0   # when agent1 is Player 1
+        p2_wins = p2_draws = p2_losses = 0   # when agent1 is Player 2
         total_length = 0
         agent1_times = []
         agent1_nodes = []
@@ -70,22 +73,37 @@ class Evaluator:
             total_length += length
             if winner == a1_player:
                 wins += 1
+                if a1_player == 1: p1_wins += 1
+                else:              p2_wins += 1
             elif winner == 0:
                 draws += 1
+                if a1_player == 1: p1_draws += 1
+                else:              p2_draws += 1
             else:
                 losses += 1
+                if a1_player == 1: p1_losses += 1
+                else:              p2_losses += 1
 
-        total = wins + draws + losses
+        total   = wins + draws + losses
+        p1_total = p1_wins + p1_draws + p1_losses
+        p2_total = p2_wins + p2_draws + p2_losses
         return {
             "wins": wins,
             "draws": draws,
             "losses": losses,
-            "win_rate": wins / total,
+            "win_rate":  wins  / total,
             "draw_rate": draws / total,
             "loss_rate": losses / total,
-            "avg_game_length": total_length / total,
+            "avg_game_length":  total_length / total,
             "avg_move_time_ms": np.mean(agent1_times) if agent1_times else 0.0,
             "avg_nodes": np.mean(agent1_nodes) if agent1_nodes else 0.0,
+            # first-player bias
+            "p1_win_rate":  p1_wins  / p1_total if p1_total else 0.0,
+            "p1_draw_rate": p1_draws / p1_total if p1_total else 0.0,
+            "p1_loss_rate": p1_losses/ p1_total if p1_total else 0.0,
+            "p2_win_rate":  p2_wins  / p2_total if p2_total else 0.0,
+            "p2_draw_rate": p2_draws / p2_total if p2_total else 0.0,
+            "p2_loss_rate": p2_losses/ p2_total if p2_total else 0.0,
         }
 
     def round_robin(self, agents):
@@ -97,7 +115,8 @@ class Evaluator:
         """
         names = list(agents.keys())
         n = len(names)
-        matrix = np.zeros((n, n))
+        matrix      = np.zeros((n, n))
+        draw_matrix = np.zeros((n, n))
         results = {name: {} for name in names}
 
         pairs = [(i, j) for i in range(n) for j in range(n) if i != j]
@@ -108,7 +127,8 @@ class Evaluator:
             a2 = agents[names[j]]
             pbar.set_postfix_str(f"{names[i]} vs {names[j]}")
             stats = self.evaluate(a1, a2)
-            matrix[i, j] = stats["win_rate"]
+            matrix[i, j]      = stats["win_rate"]
+            draw_matrix[i, j] = stats["draw_rate"]
             results[names[i]][names[j]] = stats
 
-        return matrix, names, results
+        return matrix, draw_matrix, names, results

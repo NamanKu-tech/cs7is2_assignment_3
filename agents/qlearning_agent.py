@@ -33,6 +33,7 @@ class QLearningAgent:
         self.epsilon_decay = epsilon_decay
         # state -> {action -> Q-value}
         self.q_table = defaultdict(lambda: defaultdict(float))
+        self.td_errors = []  # TD error per update, for loss plotting
 
     # ------------------------------------------------------------------ #
     # Action selection                                                     #
@@ -73,7 +74,9 @@ class QLearningAgent:
             future_qs = [self.q_table[next_state][a] for a in next_valid]
             target = reward + self.gamma * max(future_qs)
 
-        self.q_table[state][action] = current_q + self.alpha * (target - current_q)
+        td_error = target - current_q
+        self.td_errors.append(abs(td_error))
+        self.q_table[state][action] = current_q + self.alpha * td_error
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)

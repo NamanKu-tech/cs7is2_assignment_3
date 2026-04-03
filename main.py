@@ -172,7 +172,7 @@ def train(args):
         n_episodes=args.episodes,
         swap_sides=True,
         verbose=True,
-        print_every=max(1000, args.episodes // 20),
+        print_every=1000,
     )
     metrics = trainer.train()
     fs = final_stats(metrics["win_history"])
@@ -180,7 +180,7 @@ def train(args):
           f"draw={fs['draw_rate']:.1%}  loss={fs['loss_rate']:.1%}")
 
     # Save
-    save_path = args.save_path or f"results/models/{args.game}_{args.agent}.{'pkl' if args.agent == 'ql' else 'pth'}"
+    save_path = args.save_path or f"results/models/{args.game}_{args.agent}.pkl"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     agent.save(save_path)
     print(f"  Saved to {save_path}")
@@ -223,7 +223,7 @@ Examples:
   python main.py play --game ttt --agent minimax
 
   # Play Connect 4 against a trained DQN:
-  python main.py play --game c4 --agent dqn --model-path results/models/c4_dqn.pth
+  python main.py play --game c4 --agent dqn --model-path results/models/c4_dqn.pkl
 
   # Watch Minimax+AB vs Q-Learning:
   python main.py demo --game ttt --agent1 alphabeta --agent2 ql --delay 0.5

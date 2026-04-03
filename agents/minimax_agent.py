@@ -25,8 +25,9 @@ class MinimaxAgent:
         self.depth_limit = depth_limit
         self.nodes_visited = 0
 
-    def choose_move(self, game, training=False):
+    def choose_move(self, game, training=False):  # noqa: ARG002
         self.nodes_visited = 0
+        self._cache = {}  # transposition table (cleared per move)
         valid = game.get_valid_actions()
         best_action = valid[0]
         best_val = -math.inf
@@ -50,6 +51,12 @@ class MinimaxAgent:
         if self.depth_limit is not None and depth >= self.depth_limit:
             return self._heuristic(game)
 
+        # Transposition table lookup (only when no depth limit — i.e. TTT full search)
+        if self.depth_limit is None:
+            key = (game.get_state_key(), maximizing)
+            if key in self._cache:
+                return self._cache[key]
+
         valid = game.get_valid_actions()
 
         if maximizing:
@@ -58,14 +65,16 @@ class MinimaxAgent:
                 game.make_move(action)
                 best = max(best, self._minimax(game, depth + 1, False))
                 game.undo_move(action)
-            return best
         else:
             best = math.inf
             for action in valid:
                 game.make_move(action)
                 best = min(best, self._minimax(game, depth + 1, True))
                 game.undo_move(action)
-            return best
+
+        if self.depth_limit is None:
+            self._cache[key] = best
+        return best
 
     def _terminal_value(self, winner):
         if winner == self.player:
@@ -91,7 +100,7 @@ class MinimaxABAgent:
         self.depth_limit = depth_limit
         self.nodes_visited = 0
 
-    def choose_move(self, game, training=False):
+    def choose_move(self, game, training=False):  # noqa: ARG002
         self.nodes_visited = 0
         valid = self._order_moves(game, game.get_valid_actions())
         best_action = valid[0]

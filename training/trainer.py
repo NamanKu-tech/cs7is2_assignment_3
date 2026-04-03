@@ -16,6 +16,7 @@ The loop structure ensures every agent action eventually receives an update:
 """
 
 import random
+import copy
 import numpy as np
 from tqdm import tqdm
 
@@ -33,7 +34,7 @@ class Trainer:
         swap_sides=True,
         train_every=1,        # DQN: do a train_step every N episodes
         verbose=True,
-        print_every=5000,
+        print_every=1000,
     ):
         """
         game_factory : callable returning a fresh game instance (e.g. TicTacToe)
@@ -105,7 +106,7 @@ class Trainer:
 
         return {
             "win_history": win_history,
-            "loss_history": loss_history,
+            "loss_history": loss_history if not self.is_ql else self.agent.td_errors,
             "q_size_history": q_size_history,
         }
 
@@ -216,3 +217,78 @@ class Trainer:
             return 0.0
         else:
             return -1.0
+
+
+# ===========================================================================
+# Curriculum Trainer
+# Trains an agent through a sequence of opponents:
+#   e.g. [RandomAgent(), DefaultAgent(), self_copy, MinimaxAgent()]
+# Each stage runs for n_episodes // len(stages) episodes.
+# Returns per-stage win_history and loss_history lists.
+# ===========================================================================
+
+class CurriculumTrainer:
+    def __init__(
+        self,
+        game_factory,
+        agent,
+        stages,           # list of (opponent, label) tuples
+        n_episodes=100_000,
+        swap_sides=True,
+        train_every=1,
+        verbose=True,
+        print_every=1000,
+    ):
+        self.game_factory = game_factory
+        self.agent = agent
+        self.stages = stages
+        self.n_episodes = n_episodes
+        self.swap_sides = swap_sides
+        self.train_every = train_every
+        self.verbose = verbose
+        self.print_every = print_every
+
+    def train(self):
+        """
+        Run through each stage sequentially.
+        Returns dict:
+          stage_histories: list of {"label", "win_history", "loss_history"}
+          win_history:     flat concatenation of all stage win histories
+          loss_history:    flat concatenation of all stage loss histories
+        """
+        eps_per_stage = self.n_episodes // len(self.stages)
+        stage_histories = []
+        all_wins = []
+        all_losses = []
+
+        for opponent, label in self.stages:
+            if label == "self":
+                # snapshot current policy as frozen opponent
+                opponent = copy.deepcopy(self.agent)
+                opponent.epsilon = 0.0   # frozen — greedy only
+
+            if self.verbose:
+                print(f"\n  [Curriculum] Stage: {label}  ({eps_per_stage:,} episodes)")
+
+            trainer = Trainer(
+                self.game_factory, self.agent, opponent,
+                n_episodes=eps_per_stage,
+                swap_sides=self.swap_sides,
+                train_every=self.train_every,
+                verbose=self.verbose,
+                print_every=self.print_every,
+            )
+            metrics = trainer.train()
+            stage_histories.append({
+                "label":       label,
+                "win_history": metrics["win_history"],
+                "loss_history": metrics["loss_history"],
+            })
+            all_wins.extend(metrics["win_history"])
+            all_losses.extend(metrics["loss_history"])
+
+        return {
+            "stage_histories": stage_histories,
+            "win_history":  all_wins,
+            "loss_history": all_losses,
+        }

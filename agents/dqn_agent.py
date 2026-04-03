@@ -9,6 +9,7 @@ Device policy:
 
 import random
 import math
+import pickle
 from collections import deque, namedtuple
 
 import numpy as np
@@ -66,12 +67,17 @@ class DQNAgent:
         self.batch_size = batch_size
         self.target_update_freq = target_update_freq
         self.steps = 0
-        self.loss_history = []
 
-        # Device: TTT always CPU; C4 uses GPU if available
+        # Device: TTT always CPU (network too small to benefit from GPU transfer overhead)
+        # C4: use MPS (Apple Silicon) > CUDA > CPU in that priority order
         if device == "auto":
-            if game_name.lower() != "tictactoe" and torch.cuda.is_available():
-                self.device = torch.device("cuda")
+            if game_name.lower() != "tictactoe":
+                if torch.backends.mps.is_available():
+                    self.device = torch.device("mps")
+                elif torch.cuda.is_available():
+                    self.device = torch.device("cuda")
+                else:
+                    self.device = torch.device("cpu")
             else:
                 self.device = torch.device("cpu")
         else:
@@ -151,9 +157,7 @@ class DQNAgent:
         if self.steps % self.target_update_freq == 0:
             self.target_net.load_state_dict(self.policy_net.state_dict())
 
-        loss_val = loss.item()
-        self.loss_history.append(loss_val)
-        return loss_val
+        return loss.item()
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
@@ -163,15 +167,18 @@ class DQNAgent:
     # ------------------------------------------------------------------ #
 
     def save(self, path):
-        torch.save({
+        data = {
             "policy": self.policy_net.state_dict(),
             "target": self.target_net.state_dict(),
             "epsilon": self.epsilon,
             "steps": self.steps,
-        }, path)
+        }
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
 
     def load(self, path):
-        ckpt = torch.load(path, map_location=self.device)
+        with open(path, "rb") as f:
+            ckpt = pickle.load(f)
         self.policy_net.load_state_dict(ckpt["policy"])
         self.target_net.load_state_dict(ckpt["target"])
         self.epsilon = ckpt.get("epsilon", self.epsilon_min)

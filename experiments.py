@@ -8,7 +8,6 @@ Run one section:  python experiments.py --phase ttt
 import os
 import sys
 import time
-import argparse
 import numpy as np
 
 # ---------------------------------------------------------------------------
@@ -27,12 +26,15 @@ from agents.default_agent import DefaultAgent
 from agents.minimax_agent import MinimaxAgent, MinimaxABAgent
 from agents.qlearning_agent import QLearningAgent
 from agents.dqn_agent import DQNAgent
-from training.trainer import Trainer
+from training.trainer import Trainer, CurriculumTrainer
 from training.evaluator import Evaluator
 from utils.plotting import (
     setup_style, plot_training_curve, plot_win_rate_bar,
     plot_heatmap, plot_param_sweep, plot_param_bar,
     plot_dqn_loss, plot_depth_analysis, plot_node_comparison,
+    plot_epsilon_decay, plot_ql_qtable_growth, plot_combined_loss,
+    plot_winrate_over_time, plot_first_player_bias, plot_curriculum_training,
+    plot_move_limit_comparison,
 )
 from utils.metrics import final_stats
 
@@ -43,8 +45,10 @@ setup_style()
 # ---------------------------------------------------------------------------
 FIG_DIR   = "results/figures"
 MODEL_DIR = "results/models"
+CSV_DIR   = "results/csv"
 os.makedirs(FIG_DIR,   exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
+os.makedirs(CSV_DIR,   exist_ok=True)
 
 
 # ===========================================================================
@@ -56,6 +60,64 @@ def _fig(name):
 
 def _model(name):
     return os.path.join(MODEL_DIR, name)
+
+def _csv(name):
+    return os.path.join(CSV_DIR, name)
+
+def _save_eval_csv(results_dict, path):
+    """Save evaluation stats dict to CSV. results_dict: {agent_name -> stats}"""
+    import csv
+    rows = []
+    for agent_name, stats in results_dict.items():
+        rows.append({
+            "agent": agent_name,
+            "wins": stats.get("wins", ""),
+            "draws": stats.get("draws", ""),
+            "losses": stats.get("losses", ""),
+            "win_rate": f"{stats['win_rate']:.4f}",
+            "draw_rate": f"{stats['draw_rate']:.4f}",
+            "loss_rate": f"{stats['loss_rate']:.4f}",
+            "avg_game_length": f"{stats['avg_game_length']:.2f}",
+            "avg_move_time_ms": f"{stats['avg_move_time_ms']:.3f}",
+            "avg_nodes": f"{stats['avg_nodes']:.1f}",
+        })
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"  CSV saved: {path}")
+
+def _save_training_csv(win_history, loss_history, path, window=1000):
+    """Save per-episode training metrics to CSV (sampled every `window` episodes)."""
+    import csv
+    n = len(win_history)
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["episode", "win_rate", "draw_rate", "loss_rate", "avg_loss"])
+        for i in range(window - 1, n, window):
+            chunk = win_history[max(0, i - window + 1): i + 1]
+            wr = sum(1 for x in chunk if x ==  1) / len(chunk)
+            dr = sum(1 for x in chunk if x ==  0) / len(chunk)
+            lr = sum(1 for x in chunk if x == -1) / len(chunk)
+            if loss_history:
+                # sample corresponding loss window
+                lstart = int(i / n * len(loss_history))
+                lend   = int((i + 1) / n * len(loss_history))
+                avg_l  = float(np.mean(loss_history[lstart:lend])) if lstart < lend else ""
+            else:
+                avg_l = ""
+            writer.writerow([i + 1, f"{wr:.4f}", f"{dr:.4f}", f"{lr:.4f}", avg_l])
+    print(f"  CSV saved: {path}")
+
+def _save_rr_csv(matrix, labels, path):
+    """Save round-robin win-rate matrix to CSV."""
+    import csv
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["agent"] + labels)
+        for i, label in enumerate(labels):
+            writer.writerow([label] + [f"{matrix[i,j]:.4f}" for j in range(len(labels))])
+    print(f"  CSV saved: {path}")
 
 def _print_header(title):
     print("\n" + "=" * 65)
@@ -90,8 +152,6 @@ def run_scalability_test(time_limit=300):
 
         # Probe: run for time_limit seconds and count nodes
         start = time.time()
-        nodes_total = 0
-        moves_completed = 0
 
         # We won't finish — just run the first move search until timeout
         import threading
@@ -133,26 +193,36 @@ def run_scalability_test(time_limit=300):
 # ===========================================================================
 
 def run_ttt_experiments(
-    ql_episodes=30_000,
-    dqn_episodes=20_000,
-    eval_games=200,
+    ql_episodes=60_000,
+    dqn_episodes=40_000,
+    eval_games=500,
     verbose=True,
 ):
     _print_header("Phase 1a: Tic Tac Toe — Training RL Agents")
 
     default_opp = DefaultAgent()
-    random_opp  = RandomAgent()
 
     # --- Q-Learning ---
     print("\n[TTT] Training Q-Learning vs Default Opponent…")
     ttt_ql = QLearningAgent(player=1, alpha=0.1, gamma=0.99, epsilon=1.0,
-                             epsilon_min=0.05, epsilon_decay=0.9995)
+                             epsilon_min=0.05, epsilon_decay=0.9998)
     trainer = Trainer(TicTacToe, ttt_ql, default_opp,
                       n_episodes=ql_episodes, swap_sides=True, verbose=verbose)
     ql_metrics = trainer.train()
+    _save_training_csv(ql_metrics["win_history"], ql_metrics["loss_history"],
+                       _csv("ttt_ql_training.csv"))
     plot_training_curve(ql_metrics["win_history"],
                         "Q-Learning Training — Tic Tac Toe vs Default",
                         _fig("ttt_ql_training.png"))
+    plot_dqn_loss(ql_metrics["loss_history"],
+                  "Q-Learning TD Error — Tic Tac Toe",
+                  _fig("ttt_ql_loss.png"), ylabel="|TD Error|")
+    plot_ql_qtable_growth(ql_metrics["q_size_history"],
+                          "Q-Learning Q-Table Growth — Tic Tac Toe",
+                          _fig("ttt_ql_qtable.png"))
+    plot_epsilon_decay(ql_episodes, 1.0, 0.05, 0.9998,
+                       "Epsilon Decay — TTT Q-Learning",
+                       _fig("ttt_ql_epsilon.png"))
     ttt_ql.save(_model("ttt_ql.pkl"))
     print(f"  Final stats: {final_stats(ql_metrics['win_history'])}")
 
@@ -160,13 +230,15 @@ def run_ttt_experiments(
     print("\n[TTT] Training DQN vs Default Opponent…")
     ttt_dqn = DQNAgent(player=1, state_size=9, action_size=9,
                         hidden_sizes=(128, 128), lr=1e-3, gamma=0.99,
-                        epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.995,
+                        epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.9992,
                         batch_size=64, memory_size=20_000,
                         target_update_freq=200, game_name="tictactoe")
     trainer = Trainer(TicTacToe, ttt_dqn, default_opp,
                       n_episodes=dqn_episodes, swap_sides=True,
                       train_every=1, verbose=verbose)
     dqn_metrics = trainer.train()
+    _save_training_csv(dqn_metrics["win_history"], dqn_metrics["loss_history"],
+                       _csv("ttt_dqn_training.csv"))
     plot_training_curve(dqn_metrics["win_history"],
                         "DQN Training — Tic Tac Toe vs Default",
                         _fig("ttt_dqn_training.png"))
@@ -174,8 +246,15 @@ def run_ttt_experiments(
         plot_dqn_loss(dqn_metrics["loss_history"],
                       "DQN Loss — Tic Tac Toe",
                       _fig("ttt_dqn_loss.png"))
-    ttt_dqn.save(_model("ttt_dqn.pth"))
+    plot_epsilon_decay(dqn_episodes, 1.0, 0.05, 0.9992,
+                       "Epsilon Decay — TTT DQN",
+                       _fig("ttt_dqn_epsilon.png"))
+    ttt_dqn.save(_model("ttt_dqn.pkl"))
     print(f"  Final stats: {final_stats(dqn_metrics['win_history'])}")
+
+    # --- Combined loss comparison ---
+    plot_combined_loss(ql_metrics["loss_history"], dqn_metrics["loss_history"],
+                       "Tic Tac Toe", _fig("ttt_combined_loss.png"))
 
     # --- Evaluation: all agents vs Default ---
     _print_header("Phase 1b: Tic Tac Toe — All Agents vs Default Opponent")
@@ -193,7 +272,28 @@ def run_ttt_experiments(
         print(f"  {name:12s}", end="  ")
         _print_results(stats)
 
-    plot_win_rate_bar(vs_default, "Tic Tac Toe", _fig("ttt_vs_default.png"))
+    plot_win_rate_bar(vs_default, "Tic Tac Toe", _fig("ttt_vs_default.png"),
+                      opponent_name="Default")
+    _save_eval_csv(vs_default, _csv("ttt_vs_default.csv"))
+    plot_first_player_bias(vs_default,
+                           "Tic Tac Toe: First-Player Bias (P1 vs P2 Win/Draw Rate)",
+                           _fig("ttt_first_player_bias.png"),
+                           opponent_name="Default")
+
+    # --- Avg game length per agent ---
+    names_gl = list(vs_default.keys())
+    avg_lengths = [vs_default[n]["avg_game_length"] for n in names_gl]
+    plot_param_bar(names_gl, avg_lengths, "Agent", "Avg Game Length (moves)",
+                   "Tic Tac Toe: Avg Game Length vs Default",
+                   _fig("ttt_game_length.png"))
+
+    # --- Overlaid RL win-rate curves ---
+    plot_winrate_over_time(
+        [ql_metrics["win_history"], dqn_metrics["win_history"]],
+        ["Q-Learning", "DQN"],
+        "TTT: Q-Learning vs DQN Win Rate During Training",
+        _fig("ttt_rl_comparison.png"),
+    )
 
     # --- Minimax node comparison ---
     _print_header("Phase 1c: Tic Tac Toe — Minimax vs Alpha-Beta Nodes")
@@ -209,14 +309,20 @@ def run_ttt_experiments(
     print(f"  Minimax     avg nodes: {mm_stats['avg_nodes']:,.0f}  time: {mm_stats['avg_move_time_ms']:.2f}ms")
     print(f"  Minimax+AB  avg nodes: {ab_stats['avg_nodes']:,.0f}  time: {ab_stats['avg_move_time_ms']:.2f}ms")
     plot_node_comparison(node_results, _fig("ttt_node_comparison.png"))
+    _save_eval_csv(
+        {"Minimax": mm_stats, "Minimax+AB": ab_stats},
+        _csv("ttt_node_comparison.csv")
+    )
 
     # --- Round-robin ---
     _print_header("Phase 1d: Tic Tac Toe — Round Robin")
-    rr_ev = Evaluator(TicTacToe, n_games=100, swap_sides=True, verbose=False)
-    matrix, labels, rr_results = rr_ev.round_robin(agents)
-    np.fill_diagonal(matrix, 0)  # zero out self-play diagonal
+    rr_ev = Evaluator(TicTacToe, n_games=60, swap_sides=False, verbose=True)
+    matrix, draw_matrix, labels, rr_results = rr_ev.round_robin(agents)
+    np.fill_diagonal(matrix, 0)
+    np.fill_diagonal(draw_matrix, 0)
     plot_heatmap(matrix, labels, "Tic Tac Toe: Head-to-Head Win Rates",
-                 _fig("ttt_round_robin.png"))
+                 _fig("ttt_round_robin.png"), draw_matrix=draw_matrix)
+    _save_rr_csv(matrix, labels, _csv("ttt_round_robin.csv"))
     print("  Win rate matrix (row beats col):")
     print("  " + "  ".join(f"{l[:5]:>5}" for l in labels))
     for i, label in enumerate(labels):
@@ -235,9 +341,9 @@ def run_ttt_experiments(
 # ===========================================================================
 
 def run_c4_experiments(
-    ql_episodes=50_000,
-    dqn_episodes=30_000,
-    eval_games=100,
+    ql_episodes=100_000,
+    dqn_episodes=60_000,
+    eval_games=200,
     minimax_depth=4,
     verbose=True,
 ):
@@ -251,31 +357,58 @@ def run_c4_experiments(
     trainer = Trainer(Connect4, c4_ql, random_opp,
                       n_episodes=ql_episodes, swap_sides=True, verbose=verbose)
     ql_metrics = trainer.train()
+    _save_training_csv(ql_metrics["win_history"], ql_metrics["loss_history"],
+                       _csv("c4_ql_training.csv"))
     plot_training_curve(ql_metrics["win_history"],
                         "Q-Learning Training — Connect 4 vs Random",
                         _fig("c4_ql_training.png"), window=1000)
+    plot_dqn_loss(ql_metrics["loss_history"],
+                  "Q-Learning TD Error — Connect 4",
+                  _fig("c4_ql_loss.png"), ylabel="|TD Error|")
+    plot_ql_qtable_growth(ql_metrics["q_size_history"],
+                          "Q-Learning Q-Table Growth — Connect 4",
+                          _fig("c4_ql_qtable.png"))
+    plot_epsilon_decay(ql_episodes, 1.0, 0.05, 0.9999,
+                       "Epsilon Decay — C4 Q-Learning",
+                       _fig("c4_ql_epsilon.png"))
     c4_ql.save(_model("c4_ql.pkl"))
     print(f"  Final stats: {final_stats(ql_metrics['win_history'])}")
 
     # DQN (GPU if available)
     print("\n[C4] Training DQN vs Random Opponent…")
     c4_dqn = DQNAgent(player=1, state_size=42, action_size=7,
-                       hidden_sizes=(256, 128, 64), lr=5e-4, gamma=0.99,
-                       epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.9998,
-                       batch_size=128, memory_size=50_000,
+                       hidden_sizes=(256, 256, 128), lr=5e-4, gamma=0.99,
+                       epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.99993,
+                       batch_size=128, memory_size=100_000,
                        target_update_freq=500, game_name="connect4")
     trainer = Trainer(Connect4, c4_dqn, random_opp,
                       n_episodes=dqn_episodes, swap_sides=True,
                       train_every=1, verbose=verbose)
     dqn_metrics = trainer.train()
+    _save_training_csv(dqn_metrics["win_history"], dqn_metrics["loss_history"],
+                       _csv("c4_dqn_training.csv"))
     plot_training_curve(dqn_metrics["win_history"],
                         "DQN Training — Connect 4 vs Random",
                         _fig("c4_dqn_training.png"), window=1000)
     if dqn_metrics["loss_history"]:
         plot_dqn_loss(dqn_metrics["loss_history"],
                       "DQN Loss — Connect 4", _fig("c4_dqn_loss.png"))
-    c4_dqn.save(_model("c4_dqn.pth"))
+    plot_epsilon_decay(dqn_episodes, 1.0, 0.05, 0.99993,
+                       "Epsilon Decay — C4 DQN",
+                       _fig("c4_dqn_epsilon.png"))
+    c4_dqn.save(_model("c4_dqn.pkl"))
     print(f"  Final stats: {final_stats(dqn_metrics['win_history'])}")
+
+    # --- Combined loss + win-rate overlay ---
+    plot_combined_loss(ql_metrics["loss_history"], dqn_metrics["loss_history"],
+                       "Connect 4", _fig("c4_combined_loss.png"))
+    plot_winrate_over_time(
+        [ql_metrics["win_history"], dqn_metrics["win_history"]],
+        ["Q-Learning", "DQN"],
+        "C4: Q-Learning vs DQN Win Rate During Training",
+        _fig("c4_rl_comparison.png"),
+        window=1000,
+    )
 
     # --- Evaluation vs Default ---
     _print_header("Phase 2b: Connect 4 — All Agents vs Default Opponent")
@@ -293,15 +426,30 @@ def run_c4_experiments(
         print(f"  {name:12s}", end="  ")
         _print_results(stats)
 
-    plot_win_rate_bar(vs_default, "Connect 4", _fig("c4_vs_default.png"))
+    plot_win_rate_bar(vs_default, "Connect 4", _fig("c4_vs_default.png"),
+                      opponent_name="Default")
+    _save_eval_csv(vs_default, _csv("c4_vs_default.csv"))
+    plot_first_player_bias(vs_default,
+                           "Connect 4: First-Player Bias (P1 vs P2 Win/Draw Rate)",
+                           _fig("c4_first_player_bias.png"),
+                           opponent_name="Default")
+
+    # --- Game length bar (data already collected in vs_default) ---
+    names_gl = list(vs_default.keys())
+    avg_lengths = [vs_default[n]["avg_game_length"] for n in names_gl]
+    plot_param_bar(names_gl, avg_lengths, "Agent", "Avg Game Length (moves)",
+                   "Connect 4: Avg Game Length vs Default",
+                   _fig("c4_game_length.png"))
 
     # --- Round-robin ---
     _print_header("Phase 2c: Connect 4 — Round Robin")
-    rr_ev = Evaluator(Connect4, n_games=60, swap_sides=True, verbose=False)
-    matrix, labels, rr_results = rr_ev.round_robin(agents)
+    rr_ev = Evaluator(Connect4, n_games=60, swap_sides=False, verbose=True)
+    matrix, draw_matrix, labels, rr_results = rr_ev.round_robin(agents)
     np.fill_diagonal(matrix, 0)
+    np.fill_diagonal(draw_matrix, 0)
     plot_heatmap(matrix, labels, "Connect 4: Head-to-Head Win Rates",
-                 _fig("c4_round_robin.png"))
+                 _fig("c4_round_robin.png"), draw_matrix=draw_matrix)
+    _save_rr_csv(matrix, labels, _csv("c4_round_robin.csv"))
 
     return {
         "ql": c4_ql, "dqn": c4_dqn,
@@ -314,7 +462,7 @@ def run_c4_experiments(
 # Phase 3: Depth limit analysis (Connect 4)
 # ===========================================================================
 
-def run_depth_analysis(depths=(2, 3, 4, 5, 6), games_per_depth=30):
+def run_depth_analysis(depths=(2, 3, 4, 5, 6), games_per_depth=50):
     _print_header("Phase 3: C4 Depth Limit Analysis")
     ev = Evaluator(Connect4, n_games=games_per_depth, swap_sides=True, verbose=False)
     depth_results = {}
@@ -332,6 +480,15 @@ def run_depth_analysis(depths=(2, 3, 4, 5, 6), games_per_depth=30):
               f"nodes={stats['avg_nodes']:,.0f}")
 
     plot_depth_analysis(depth_results, _fig("c4_depth_analysis.png"))
+
+    import csv
+    with open(_csv("c4_depth_analysis.csv"), "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["depth", "win_rate", "avg_time_ms", "avg_nodes"])
+        for d, r in depth_results.items():
+            writer.writerow([d, f"{r['win_rate']:.4f}",
+                             f"{r['avg_time_ms']:.3f}", f"{r['avg_nodes']:.1f}"])
+    print(f"  CSV saved: {_csv('c4_depth_analysis.csv')}")
     return depth_results
 
 
@@ -339,7 +496,7 @@ def run_depth_analysis(depths=(2, 3, 4, 5, 6), games_per_depth=30):
 # Phase 4: Hyperparameter sweeps
 # ===========================================================================
 
-def run_ql_param_sweep(game_name="ttt", episodes=10_000):
+def run_ql_param_sweep(game_name="ttt", episodes=20_000):
     _print_header(f"Phase 4a: Q-Learning Hyperparameter Sweep ({game_name.upper()})")
     GameCls = TicTacToe if game_name == "ttt" else Connect4
     opponent = DefaultAgent() if game_name == "ttt" else RandomAgent()
@@ -375,10 +532,20 @@ def run_ql_param_sweep(game_name="ttt", episodes=10_000):
     plot_param_bar(labels, final_wins, "Config", "Final Win Rate",
                    f"Q-Learning Final Win Rate by Config ({game_name.upper()})",
                    _fig(f"{game_name}_ql_param_bar.png"))
+
+    import csv
+    with open(_csv(f"{game_name}_ql_sweep.csv"), "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["config", "final_win_rate", "final_draw_rate", "final_loss_rate"])
+        for l in labels:
+            fs = final_stats(sweep[l])
+            writer.writerow([l, f"{fs['win_rate']:.4f}",
+                             f"{fs['draw_rate']:.4f}", f"{fs['loss_rate']:.4f}"])
+    print(f"  CSV saved: {_csv(f'{game_name}_ql_sweep.csv')}")
     return sweep
 
 
-def run_dqn_param_sweep(game_name="ttt", episodes=8_000):
+def run_dqn_param_sweep(game_name="ttt", episodes=15_000):
     _print_header(f"Phase 4b: DQN Hyperparameter Sweep ({game_name.upper()})")
     GameCls = TicTacToe if game_name == "ttt" else Connect4
     opponent = DefaultAgent() if game_name == "ttt" else RandomAgent()
@@ -416,7 +583,129 @@ def run_dqn_param_sweep(game_name="ttt", episodes=8_000):
     plot_param_bar(labels, final_wins, "Config", "Final Win Rate",
                    f"DQN Final Win Rate by Config ({game_name.upper()})",
                    _fig(f"{game_name}_dqn_param_bar.png"))
+
+    import csv
+    with open(_csv(f"{game_name}_dqn_sweep.csv"), "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["config", "final_win_rate", "final_draw_rate", "final_loss_rate"])
+        for l in labels:
+            fs = final_stats(sweep[l])
+            writer.writerow([l, f"{fs['win_rate']:.4f}",
+                             f"{fs['draw_rate']:.4f}", f"{fs['loss_rate']:.4f}"])
+    print(f"  CSV saved: {_csv(f'{game_name}_dqn_sweep.csv')}")
     return sweep
+
+
+# ===========================================================================
+# Phase 5: Curriculum Training (random → default → self-play → minimax)
+# ===========================================================================
+
+def run_curriculum_experiment(
+    game_name="c4",
+    total_episodes=120_000,
+    eval_games=100,
+    minimax_depth=3,
+    verbose=True,
+):
+    _print_header(f"Phase 5: Curriculum Training — {game_name.upper()}")
+    GameCls = TicTacToe if game_name == "ttt" else Connect4
+    is_c4   = game_name == "c4"
+    state_size  = 42 if is_c4 else 9
+    action_size = 7  if is_c4 else 9
+
+    # Build a fresh DQN agent
+    agent = DQNAgent(
+        player=1,
+        state_size=state_size, action_size=action_size,
+        hidden_sizes=(256, 256, 128) if is_c4 else (128, 128),
+        lr=5e-4, gamma=0.99,
+        epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.9997,
+        batch_size=128, memory_size=100_000,
+        target_update_freq=500, game_name=game_name,
+    )
+
+    stages = [
+        (RandomAgent(),                                  "Random"),
+        (DefaultAgent(),                                 "Default"),
+        (None,                                           "self"),   # self-play snapshot
+        (MinimaxABAgent(player=-1, depth_limit=minimax_depth), "Minimax+AB"),
+    ]
+
+    ct = CurriculumTrainer(
+        GameCls, agent, stages,
+        n_episodes=total_episodes,
+        swap_sides=True, train_every=1,
+        verbose=verbose, print_every=1000,
+    )
+    result = ct.train()
+
+    # Plot curriculum training curve with stage boundaries
+    plot_curriculum_training(
+        result["stage_histories"],
+        f"Curriculum Training — {game_name.upper()} (Random→Default→Self→Minimax)",
+        _fig(f"{game_name}_curriculum.png"),
+    )
+
+    # Save combined CSV
+    _save_training_csv(result["win_history"], result["loss_history"],
+                       _csv(f"{game_name}_curriculum_training.csv"))
+
+    # Evaluate trained agent vs default
+    ev = Evaluator(GameCls, n_games=eval_games, swap_sides=True, verbose=verbose)
+    stats = ev.evaluate(agent, DefaultAgent())
+    print(f"\n  Curriculum DQN vs Default:")
+    _print_results(stats)
+    _save_eval_csv({"Curriculum-DQN": stats}, _csv(f"{game_name}_curriculum_eval.csv"))
+
+    agent.save(_model(f"{game_name}_dqn_curriculum.pkl"))
+    return {"agent": agent, "stage_histories": result["stage_histories"], "eval": stats}
+
+
+# ===========================================================================
+# Phase 6: Move-Limit vs Depth-Limit Comparison (Connect 4)
+# ===========================================================================
+
+def run_move_limit_experiment(
+    move_limits=(10, 16, 22, 42),
+    depth=4,
+    games_per_config=60,
+    verbose=True,
+):
+    _print_header("Phase 6: Move-Limit vs Depth-Limit Comparison — Connect 4")
+
+    # --- Move-limit: how does limiting total moves (forced draw) affect agent ---
+    print("\n  Move-limit analysis: Minimax+AB (depth=4) vs Default")
+    move_results = {}
+    for ml in move_limits:
+        label = f"limit={ml}" if ml < 42 else "no limit"
+        # Factory that returns a game with this move limit
+        factory = lambda lim=ml: Connect4(move_limit=lim)
+        ev = Evaluator(factory, n_games=games_per_config, swap_sides=True, verbose=verbose)
+        agent = MinimaxABAgent(player=1, depth_limit=depth)
+        stats = ev.evaluate(agent, DefaultAgent())
+        move_results[label] = stats
+        print(f"  {label:12s}: win={stats['win_rate']:.0%}  "
+              f"draw={stats['draw_rate']:.0%}  "
+              f"avg_len={stats['avg_game_length']:.1f}")
+
+    plot_move_limit_comparison(
+        move_results,
+        "Connect 4: Effect of Move Limit on Minimax+AB (depth=4) vs Default",
+        _fig("c4_move_limit.png"),
+    )
+
+    import csv
+    with open(_csv("c4_move_limit.csv"), "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["move_limit", "win_rate", "draw_rate", "loss_rate", "avg_game_length"])
+        for label, stats in move_results.items():
+            writer.writerow([label,
+                             f"{stats['win_rate']:.4f}",
+                             f"{stats['draw_rate']:.4f}",
+                             f"{stats['loss_rate']:.4f}",
+                             f"{stats['avg_game_length']:.2f}"])
+    print(f"  CSV saved: {_csv('c4_move_limit.csv')}")
+    return move_results
 
 
 # ===========================================================================
@@ -424,15 +713,15 @@ def run_dqn_param_sweep(game_name="ttt", episodes=8_000):
 # ===========================================================================
 
 def run_all(
-    ttt_ql_eps=30_000,
-    ttt_dqn_eps=20_000,
-    c4_ql_eps=50_000,
-    c4_dqn_eps=30_000,
-    eval_games_ttt=200,
-    eval_games_c4=100,
+    ttt_ql_eps=60_000,
+    ttt_dqn_eps=40_000,
+    c4_ql_eps=100_000,
+    c4_dqn_eps=60_000,
+    eval_games_ttt=500,
+    eval_games_c4=200,
     minimax_depth=4,
-    depths=(2, 3, 4, 5),
-    sweep_eps=8_000,
+    depths=(2, 3, 4, 5, 6),
+    sweep_eps=15_000,
     verbose=True,
     skip_scalability=True,
 ):
@@ -465,6 +754,15 @@ def run_all(
     all_results["ql_sweep_ttt"]  = run_ql_param_sweep("ttt",  episodes=sweep_eps)
     all_results["dqn_sweep_ttt"] = run_dqn_param_sweep("ttt", episodes=sweep_eps)
 
+    all_results["curriculum"] = run_curriculum_experiment(
+        n_episodes=100_000, eval_games=eval_games_c4, verbose=verbose
+    )
+
+    all_results["move_limit"] = run_move_limit_experiment(
+        move_limits=(10, 16, 22, 42), depth=minimax_depth,
+        games_per_config=eval_games_c4, verbose=verbose,
+    )
+
     _print_header("ALL EXPERIMENTS COMPLETE")
     print(f"\n  Figures saved to: {os.path.abspath(FIG_DIR)}")
     print(f"  Models saved to:  {os.path.abspath(MODEL_DIR)}")
@@ -475,43 +773,96 @@ def run_all(
 # CLI entry point
 # ===========================================================================
 
+def _ask_int(prompt, default):
+    try:
+        val = input(f"  {prompt} [{default}]: ").strip()
+        return int(val) if val else default
+    except (ValueError, EOFError):
+        return default
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="CS7IS2 A3 Experiments")
-    parser.add_argument("--phase", choices=["ttt", "c4", "depth", "sweep", "scalability", "all"],
-                        default="all")
-    parser.add_argument("--ttt-ql-eps",  type=int, default=30_000)
-    parser.add_argument("--ttt-dqn-eps", type=int, default=20_000)
-    parser.add_argument("--c4-ql-eps",   type=int, default=50_000)
-    parser.add_argument("--c4-dqn-eps",  type=int, default=30_000)
-    parser.add_argument("--eval-games",  type=int, default=200)
-    parser.add_argument("--depth",       type=int, default=4)
-    parser.add_argument("--sweep-eps",   type=int, default=8_000)
-    parser.add_argument("--quiet",       action="store_true")
-    args = parser.parse_args()
+    print("\n" + "=" * 60)
+    print("  CS7IS2 A3 — Experiment Runner")
+    print("=" * 60)
+    print("  Phases:")
+    print("    1  ttt         — Train + evaluate on Tic Tac Toe")
+    print("    2  depth       — Connect 4 depth-limit analysis")
+    print("    3  c4          — Train + evaluate on Connect 4")
+    print("    4  sweep       — Hyperparameter sweeps (TTT)")
+    print("    5  curriculum  — Curriculum training (random→default→self→minimax)")
+    print("    6  movelimit   — Move-limit vs depth-limit comparison")
+    print("    7  scalability — C4 full-depth feasibility test")
+    print("    8  all         — Run everything (1→7)")
+    print()
 
-    verbose = not args.quiet
+    try:
+        phase_input = input("  Choose phase (1-8 or name) [8]: ").strip().lower()
+    except EOFError:
+        phase_input = "8"
 
-    if args.phase == "scalability":
-        run_scalability_test(time_limit=300)
-    elif args.phase == "ttt":
-        run_ttt_experiments(args.ttt_ql_eps, args.ttt_dqn_eps, args.eval_games, verbose)
-    elif args.phase == "c4":
-        run_c4_experiments(args.c4_ql_eps, args.c4_dqn_eps, args.eval_games,
-                           args.depth, verbose)
-    elif args.phase == "depth":
-        run_depth_analysis()
-    elif args.phase == "sweep":
-        run_ql_param_sweep("ttt", args.sweep_eps)
-        run_dqn_param_sweep("ttt", args.sweep_eps)
-    else:
+    phase_map = {
+        "1": "ttt", "2": "depth", "3": "c4", "4": "sweep",
+        "5": "curriculum", "6": "movelimit",
+        "7": "scalability", "8": "all", "": "all",
+    }
+    phase = phase_map.get(phase_input, phase_input)
+
+    if phase == "ttt":
+        ql_eps  = _ask_int("Q-Learning episodes", 60_000)
+        dqn_eps = _ask_int("DQN episodes", 40_000)
+        ev_games = _ask_int("Eval games vs Default", 500)
+        run_ttt_experiments(ql_eps, dqn_eps, ev_games, verbose=True)
+
+    elif phase == "depth":
+        max_d = _ask_int("Max depth to test (min=2)", 6)
+        games = _ask_int("Games per depth", 50)
+        run_depth_analysis(depths=tuple(range(2, max_d + 1)), games_per_depth=games)
+
+    elif phase == "c4":
+        ql_eps   = _ask_int("Q-Learning episodes", 100_000)
+        dqn_eps  = _ask_int("DQN episodes", 60_000)
+        ev_games = _ask_int("Eval games vs Default", 200)
+        depth    = _ask_int("Minimax depth", 4)
+        run_c4_experiments(ql_eps, dqn_eps, ev_games, depth, verbose=True)
+
+    elif phase == "sweep":
+        eps = _ask_int("Episodes per config", 20_000)
+        run_ql_param_sweep("ttt", eps)
+        run_dqn_param_sweep("ttt", eps)
+
+    elif phase == "curriculum":
+        eps = _ask_int("Total curriculum episodes", 100_000)
+        ev_games = _ask_int("Eval games", 200)
+        run_curriculum_experiment(n_episodes=eps, eval_games=ev_games, verbose=True)
+
+    elif phase == "movelimit":
+        depth = _ask_int("Minimax depth", 4)
+        games = _ask_int("Games per config", 60)
+        run_move_limit_experiment(depth=depth, games_per_config=games, verbose=True)
+
+    elif phase == "scalability":
+        t = _ask_int("Time limit in seconds", 300)
+        run_scalability_test(time_limit=t)
+
+    else:  # all
+        print("\n  Configure experiments (press Enter to use defaults):\n")
+        ttt_ql  = _ask_int("TTT Q-Learning episodes", 60_000)
+        ttt_dqn = _ask_int("TTT DQN episodes", 40_000)
+        c4_ql   = _ask_int("C4 Q-Learning episodes", 100_000)
+        c4_dqn  = _ask_int("C4 DQN episodes", 60_000)
+        ev_ttt  = _ask_int("TTT eval games", 500)
+        ev_c4   = _ask_int("C4 eval games", 200)
+        depth   = _ask_int("C4 minimax depth", 4)
+        sw_eps  = _ask_int("Sweep episodes per config", 20_000)
         run_all(
-            ttt_ql_eps=args.ttt_ql_eps,
-            ttt_dqn_eps=args.ttt_dqn_eps,
-            c4_ql_eps=args.c4_ql_eps,
-            c4_dqn_eps=args.c4_dqn_eps,
-            eval_games_ttt=args.eval_games,
-            eval_games_c4=args.eval_games // 2,
-            minimax_depth=args.depth,
-            sweep_eps=args.sweep_eps,
-            verbose=verbose,
+            ttt_ql_eps=ttt_ql,
+            ttt_dqn_eps=ttt_dqn,
+            c4_ql_eps=c4_ql,
+            c4_dqn_eps=c4_dqn,
+            eval_games_ttt=ev_ttt,
+            eval_games_c4=ev_c4,
+            minimax_depth=depth,
+            sweep_eps=sw_eps,
+            verbose=True,
         )
